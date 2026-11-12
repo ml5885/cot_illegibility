@@ -86,7 +86,13 @@ mark.hit { background: #ffe066; color: inherit; }
 .timeline th { color: #888; font-weight: normal; }
 .timeline tr.current td { background: #f4f4ff; }
 .timeline a { color: #339; cursor: pointer; text-decoration: underline; }
-.step-head { margin: 20px 0 8px; display: flex; gap: 8px; align-items: center; color: #666; }
+.step-note { color: #666; margin-bottom: 12px; }
+.step-card { border: 1px solid #e6e6d8; border-radius: 4px; margin-bottom: 12px; overflow: hidden; }
+.step-bar { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; padding: 6px 12px; background: #f0f0e0; color: #665; }
+.step-bar b { color: #111; margin-right: 8px; }
+.step-bar .step-right { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+.step-bar a { color: #339; cursor: pointer; text-decoration: underline; }
+.step-card pre { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; padding: 12px; background: #fffff0; }
 
 .curves { position: relative; }
 .curves-head { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; color: #52514e; }
@@ -146,7 +152,7 @@ mark.hit { background: #ffe066; color: inherit; }
 
   <div class="section">
     <h3>Across steps</h3>
-    <p>Tick "Across steps" (or press <b>c</b>) to follow one prompt through training: every completion sampled for it in every file of the same split, in step order, with outcome, parsed answer and reasoning length. Held-out (eval) prompts recur at every eval step, so use an eval file. Training prompts are drawn fresh and appear at one step only.</p>
+    <p>Tick "Across steps" (or press <b>c</b>) to follow one prompt through training: a summary table, then one card per step with the reasoning, the answer given and its length. When a step has several samples for the prompt, the numbered squares on the card switch between them. "open" jumps to that step's file. Held-out (eval) prompts recur at every eval step, so use an eval file. Training prompts are drawn fresh and appear at one step only.</p>
   </div>
 
   <div class="section">
@@ -301,6 +307,7 @@ async function loadRun(run) {
 }
 
 const fileCache = new Map();
+let acrossPick = { prompt: null, sample: {} };
 
 function fetchRows(run, file) {
   const key = `${run}/${file}`;
@@ -324,23 +331,29 @@ async function renderAcross(it) {
   const reasoningOf = r => splitCompletion(r.prompt, r.completion)[0].trim();
   const mean = xs => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 
-  let html = `<div class="meta-panel"><span class="badge tag">${esc(split)}, one prompt across ${steps.length} step${steps.length === 1 ? '' : 's'}</span>` +
+  if (acrossPick.prompt !== it.prompt) acrossPick = { prompt: it.prompt, sample: {} };
+  const cls = r => r.outcome === 'correct' ? 'good' : r.outcome === 'wrong' ? 'bad' : 'warn';
+  let html = `<div class="meta-panel"><span class="badge tag">${esc(split)}</span>` +
     `<span class="badge tag">level ${esc(it.level)}</span><span class="badge tag">expected ${esc(it.answer)}</span></div>`;
-  if (steps.length === 1) html += `<p class="step-head">This prompt was sampled at one step only. Held-out prompts recur at every eval step; pick an eval file to compare across training.</p>`;
+  if (steps.length === 1) html += `<p class="step-note">This prompt was sampled at one step only. Held-out prompts recur at every eval step; pick an eval file to compare across training.</p>`;
+  html += block('prompt', 'Prompt', it.prompt);
   html += '<table class="timeline"><tr><th>Step</th><th>Correct</th><th>Answers</th><th>Reasoning (chars)</th><th>Non-ASCII</th></tr>' +
-    steps.map(s => `<tr class="${s.file === here ? 'current' : ''}"><td><a data-file="${esc(s.file)}">${s.step}</a></td>` +
+    steps.map(s => `<tr><td><a href="#step-${s.step}">${s.step}</a></td>` +
       `<td>${s.rows.filter(r => r.reward > 0).length} of ${s.rows.length}</td>` +
-      `<td>${s.rows.map(r => `<span class="${r.outcome === 'correct' ? 'good' : r.outcome === 'wrong' ? 'bad' : 'warn'}">${r.parsed === null ? '–' : esc(r.parsed)}</span>`).join(' ')}</td>` +
+      `<td>${s.rows.map(r => `<span class="${cls(r)}">${r.parsed === null ? '–' : esc(r.parsed)}</span>`).join(' ')}</td>` +
       `<td>${mean(s.rows.map(r => reasoningOf(r).length))}</td>` +
       `<td>${mean(s.rows.map(r => (r.completion.match(NONASCII) || []).join('').length))}</td></tr>`).join('') + '</table>';
-  html += block('prompt', 'Prompt', it.prompt);
+  // One card per step showing one sample; the numbered squares switch samples within the step.
   for (const s of steps) {
-    s.rows.forEach((r, k) => {
-      const [reasoning] = splitCompletion(r.prompt, r.completion);
-      html += `<div class="step-head"><b>Step ${s.step}</b>${s.rows.length > 1 ? ` sample ${k + 1}` : ''}` +
-        `<span class="badge ${r.outcome}">${names[r.outcome]}</span><span>${reasoning.trim().length} chars of reasoning</span></div>` +
-        completionBlocks(r);
-    });
+    const k = Math.min(acrossPick.sample[s.step] || 0, s.rows.length - 1);
+    const r = s.rows[k];
+    const [reasoning, final] = splitCompletion(r.prompt, r.completion);
+    const chips = s.rows.length > 1 ? s.rows.map((g, j) =>
+      `<button class="chip ${g.outcome}${j === k ? ' current' : ''}" data-step="${s.step}" data-sample="${j}" title="${names[g.outcome]}">${j + 1}</button>`).join('') : '';
+    html += `<div class="step-card" id="step-${s.step}"><div class="step-bar"><b>Step ${s.step}</b>${chips}` +
+      `<span class="step-right"><span class="${cls(r)}">${names[r.outcome]}${r.parsed === null ? '' : `, answered ${esc(r.parsed)}`}</span>` +
+      `<span>${reasoning.trim().length} chars</span><a data-file="${esc(s.file)}">open</a></span></div>` +
+      `<pre>${highlight($('fraw').checked ? r.completion : reasoning.trim())}</pre></div>`;
   }
   $('content').innerHTML = html;
 }
@@ -700,6 +713,7 @@ $('content').addEventListener('click', e => {
   const link = e.target.closest('a[data-file]');
   if (link) { $('facross').checked = false; loadFile(link.dataset.file, true); }
   const chip = e.target.closest('.chip');
+  if (chip && chip.dataset.step) { acrossPick.sample[chip.dataset.step] = Number(chip.dataset.sample); return render(); }
   if (chip) jumpTo(Number(chip.dataset.n));
 });
 document.addEventListener('keydown', e => {
