@@ -181,17 +181,18 @@ def plot_length_signal(run: str):
     binned = lambda by_step: [[r for step in range(start, start + BIN) for r in by_step.get(step, [])] for start in starts]
     mean = lambda values: sum(values) / len(values) if len(values) >= MIN_SAMPLES else float("nan")
     for (by_outcome, by_level), metric, title in zip(axes, [newline, tokens], ["Completions with a newline", "Completion length in tokens"]):
-        pooled = [sum((sides(b, metric) for b in bins), []) for bins in zip(*(binned(rows[level]) for level in rows))]
-        for side, (name, color) in [(1, OUTCOMES[0]), (0, ("Incorrect", OUTCOMES[1][1]))]:
-            by_outcome.plot([s + BIN / 2 for s in starts], [mean([pair[side] for pair in b]) for b in pooled], "o-", color=color, label=name)
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
+            pairs = [sides(b, metric) for b in binned(rows[level])]
+            for side, style in [(1, "o-"), (0, "o--")]:
+                by_outcome.plot([s + BIN / 2 for s in starts], [mean([pair[side] for pair in b]) for b in pairs], style, color=color)
             by_level.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
         by_outcome.set_title(f"{title} (incorrect vs. correct)")
         by_level.set_title(f"{title} (by swap count)")
         by_outcome.set_ylim(0)
     axes[0, 0].yaxis.set_major_formatter("{x:.0%}")
-    for ax in axes[0]:
-        ax.legend(loc="upper right")
+    styles = [plt.Line2D([], [], color="0.3", linestyle=style, label=name) for style, name in [("-", "Correct"), ("--", "Incorrect")]]
+    axes[0, 0].legend(handles=styles, loc="upper right")
+    axes[0, 1].legend(loc="upper right")
     for ax in axes[1]:
         ax.set_xlabel("Training step")
         ax.set_xlim(-5, 205)
