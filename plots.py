@@ -1,4 +1,8 @@
-"""Per-run training curves from saved rollouts: uv run --with matplotlib plots.py [--start-box] RUN [RUN ...]"""
+"""Figures from saved rollouts.
+
+uv run --with matplotlib plots.py [--start-box] RUN [RUN ...]   training curves per run
+uv run --with matplotlib plots.py --formats MODEL                 base model, think tags vs plain format
+"""
 
 import json
 import re
@@ -73,7 +77,44 @@ def plot(run: str, start_box: bool):
     fig.savefig(f"figures/{run}.png", dpi=150)
 
 
+def reweighted(rows: list[dict], metric) -> float:
+    """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
+    distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
+    stayed = [row["answer"] == START.search(row["prompt"]).group(1) for row in rows]
+    mean = lambda keep: sum(metric(r) for r, s in zip(rows, stayed) if s == keep) / stayed.count(keep)
+    return 5 / 6 * mean(False) + 1 / 6 * mean(True)
+
+
+def plot_formats(model: str):
+    panels = [(accuracy, "Accuracy"), (lambda row: float(row["parsed"] is not None), "Completions with a parseable answer")]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    for fmt, label, color in [("tags", "Think tags", "tab:blue"), ("plain", "No tags", "tab:orange")]:
+        levels = load(f"baseline-swaps-{fmt}-{model}")["baseline"]
+        for ax, (metric, _) in zip(axes, panels):
+            ax.plot(
+                range(len(levels)),
+                [reweighted(levels[level][0], metric) for level in sorted(levels)],
+                "o-",
+                color=color,
+                label=label,
+            )
+    for ax, (_, title) in zip(axes, panels):
+        ax.set_title(title)
+        ax.set_xlabel("Number of swaps")
+        ax.set_xticks(range(len(levels)), sorted(levels))
+        ax.set_ylim(-0.03, 1.03)
+    axes[0].axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
+    axes[0].legend()
+    fig.suptitle(f"{model} before training on the box-swap task, with and without think tags. Dotted: guessing.")
+    fig.tight_layout()
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/baseline-formats-{model}.png", dpi=150)
+
+
 if __name__ == "__main__":
+    if sys.argv[1] == "--formats":
+        plot_formats(sys.argv[2])
+        sys.exit()
     runs = [arg for arg in sys.argv[1:] if arg != "--start-box"]
     for run in runs:
         plot(run, start_box=len(runs) < len(sys.argv) - 1)
