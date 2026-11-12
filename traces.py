@@ -15,6 +15,13 @@ NOT_THERE = re.compile(
 GROUP = re.compile(r"\b[A-F]\s*(?:and|or|nor|with|&)\s*(?:box\s+)?[A-F]\b|\((?:\s*[A-F]\s*,)+[^)]*\)")
 PLACED = re.compile(r"\b(?:in|to|into|at)\s+(?:box\s+)?([A-F])\b")
 LETTER = re.compile(r"\b[A-F]\b")
+# A sentence that sums up the whole puzzle rather than the swap just worked through.
+SUMMING_UP = re.compile(
+    r"(?:^|\. )[^.]*?(?:\bafter (?:all|both|these|following|performing|completing|the (?:two|four|eight|sixteen|\d+))\b"
+    r"|\bfinal(?:ly)?\b|\banswer\b|\bquestion\b|\bin conclusion\b|\bat the end\b|\bends? up\b|\bto summarize\b"
+    r"|\bbox (?:that|which) (?:contains|holds|has)\b|\bbox containing\b|\bthroughout\b|\bso, after\b(?! this))",
+    re.IGNORECASE,
+)
 
 
 def puzzle(row: dict) -> tuple[list[tuple[str, str]], list[str], list[bool]]:
@@ -50,7 +57,11 @@ def align(swaps: list[tuple[str, str]], pool: list[re.Match]) -> list[re.Match |
 
 def step_texts(reasoning: str, mentions: list[re.Match | None]) -> list[str | None]:
     starts = [m.start() for m in mentions if m] + [len(reasoning)]
-    return [m and reasoning[m.end() : next(s for s in starts if s > m.start())] for m in mentions]
+    texts = [m and reasoning[m.end() : next(s for s in starts if s > m.start())] for m in mentions]
+    last = max((i for i, text in enumerate(texts) if text is not None), default=None)
+    if last is not None and (summing_up := SUMMING_UP.search(texts[last])) and summing_up.start():
+        texts[last] = texts[last][: summing_up.start() + 1]
+    return texts
 
 
 def step_pairs(reasoning: str, expected: int) -> list[re.Match]:

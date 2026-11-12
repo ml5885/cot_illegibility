@@ -125,3 +125,22 @@ def test_newline_after_swaps_looks_at_each_written_step():
 def test_step_counts_separates_left_out_from_extra_steps(steps, expected):
     completion = " " + " ".join(f"{i}. Swap the contents of boxes {pair}: The key is in box A, so when we swap {pair} it stays." for i, pair in enumerate(steps, 1)) + "</think>"
     assert step_counts(row("A", ["AB", "CD", "BC"], completion)) == expected
+
+
+@pytest.mark.parametrize(
+    "ending",
+    [
+        " After all these operations, the key is in box C.",
+        " Therefore, after all the swaps, the key is in box C.",
+        " So, after both swaps, the key ends up in box C.",
+        " The question asks which box contains the key. The answer is C.",
+    ],
+)
+def test_the_summing_up_after_the_last_swap_is_not_a_standalone_statement(ending):
+    completion = " 1. Swap A and B: The key, in A, will move to B. 2. Swap B and C: The key, in B, will move to C." + ending + "</think>"
+    assert swap_steps(row("A", ["AB", "BC"], completion)) == [("right", False), ("right", False)]
+
+
+def test_a_standalone_statement_in_the_last_step_still_counts():
+    completion = " 1. Swap A and B: The key moves to B. Now the key is in box B. After all the swaps, the key is in box B.</think>"
+    assert swap_steps(row("A", ["AB"], completion)) == [("right", True)]
