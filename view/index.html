@@ -152,7 +152,7 @@ mark.hit { background: #ffe066; color: inherit; }
 
   <div class="section">
     <h3>Across steps</h3>
-    <p>Tick "Across steps" (or press <b>c</b>) to follow one prompt through training: a summary table, then one card per step with the reasoning, the answer given and its length. When a step has several samples for the prompt, the numbered squares on the card switch between them. "open" jumps to that step's file. Held-out (eval) prompts recur at every eval step, so use an eval file. Training prompts are drawn fresh and appear at one step only.</p>
+    <p>Tick "Across steps" (or press <b>c</b>) to follow one prompt through training: a summary table, then one card per step with the reasoning, the answer given and its length. When a step has several samples for the prompt, the numbered squares on the card switch between them. "open" jumps to that step's file. Only held-out (eval) prompts recur across steps; training prompts are drawn fresh and appear once. So ticking this from a training file jumps to the held-out prompts of the same level.</p>
   </div>
 
   <div class="section">
@@ -322,6 +322,13 @@ function fetchRows(run, file) {
 async function renderAcross(it) {
   const run = $('frun').value, here = $('ffile').value;
   const { split } = parseFile(here);
+  // Training prompts are sampled once, so follow the held-out prompts of the same level instead.
+  const firstEval = files.find(f => parseFile(f).split === 'eval');
+  if (split !== 'eval' && firstEval) {
+    fillSelect($('flevel'), ['', String(it.level)], String(it.level));
+    setParams({ i: 0 });
+    return loadFile(firstEval);
+  }
   const sameSplit = files.filter(f => parseFile(f).split === split);
   $('content').innerHTML = `<div class="empty">Loading ${sameSplit.length} ${esc(split)} files...</div>`;
   const perFile = await Promise.all(sameSplit.map(f => fetchRows(run, f)));
@@ -335,7 +342,7 @@ async function renderAcross(it) {
   const cls = r => r.outcome === 'correct' ? 'good' : r.outcome === 'wrong' ? 'bad' : 'warn';
   let html = `<div class="meta-panel"><span class="badge tag">${esc(split)}</span>` +
     `<span class="badge tag">level ${esc(it.level)}</span><span class="badge tag">expected ${esc(it.answer)}</span></div>`;
-  if (steps.length === 1) html += `<p class="step-note">This prompt was sampled at one step only. Held-out prompts recur at every eval step; pick an eval file to compare across training.</p>`;
+  if (steps.length === 1) html += `<p class="step-note">This prompt was sampled at one step only, and this run has no held-out (eval) files to follow across steps.</p>`;
   html += block('prompt', 'Prompt', it.prompt);
   html += '<table class="timeline"><tr><th>Step</th><th>Correct</th><th>Answers</th><th>Reasoning (chars)</th><th>Non-ASCII</th></tr>' +
     steps.map(s => `<tr><td><a href="#step-${s.step}">${s.step}</a></td>` +
