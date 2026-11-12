@@ -447,7 +447,7 @@ function render() {
     `<span class="badge tag">level ${esc(it.level)}</span></div>` +
     `<dl class="meta-grid">` +
     `<div><dt>Expected</dt><dd>${esc(it.answer)}</dd></div>` +
-    `<div><dt>Parsed answer</dt><dd>${it.parsed === null ? '<span class="warn">none</span>' : esc(it.parsed)}</dd></div>` +
+    `<div><dt title="As compared with the expected answer: spaces, commas and $ removed">Parsed answer (normalized)</dt><dd>${it.parsed === null ? '<span class="warn">none</span>' : esc(it.parsed)}</dd></div>` +
     `<div><dt>Reward</dt><dd>${it.reward}</dd></div>` +
     `<div><dt>Reasoning</dt><dd>${reasoning.trim().length} chars${it.tokens ? `, ${it.tokens} tokens in all` : ''}</dd></div>` +
     `<div><dt>Non-ASCII</dt><dd>${it.nonascii} chars</dd></div>` +
