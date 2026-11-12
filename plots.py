@@ -25,7 +25,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from traces import PAIR, START, newline_after_swaps, puzzle, step_counts, swap_mentions, swap_steps
+from traces import PAIR, START, puzzle, step_counts, swap_mentions, swap_steps
 
 plt.rcParams.update({
     "font.family": "serif",
@@ -349,11 +349,6 @@ def right_share(rows: list[dict]) -> float:
     return sum(outcome == "right" for outcome, _ in steps) / len(steps)
 
 
-def newline_step_share(rows: list[dict]) -> float:
-    steps = [step for row in rows for step in newline_after_swaps(row)]
-    return sum(steps) / len(steps)
-
-
 def standalone_share(rows: list[dict]) -> float:
     steps = [step for row in rows for step in swap_steps(row)]
     return sum(standalone for _, standalone in steps) / len(steps)
@@ -398,16 +393,15 @@ def plot_tracking(run: str):
     width, examples = 5, EXAMPLES.get(run, [])
     panels = [
         ("Correctly tracks the key's location", right_share),
-        ("Swaps followed by a newline", newline_step_share),
         ("Swaps followed by a standalone location statement", standalone_share),
     ]
     if examples:
-        grid = plt.figure(figsize=(15, 8), layout="constrained").subplot_mosaic("\n".join(["a" * 7 + "b" * 7, "l" * 4 + "c" * 5 + "r" * 5]))
-        fig, axes, margins = grid["a"].figure, [grid["a"], grid["b"], grid["c"]], [grid["l"], grid["r"]]
-        for margin in margins:
-            margin.axis("off")
+        grid = plt.figure(figsize=(15, 8), layout="constrained").subplot_mosaic("\n".join(["x" * 4 + "a" * 5 + "y" * 5, "l" * 4 + "c" * 5 + "r" * 5]))
+        fig, axes, margins = grid["a"].figure, [grid["a"], grid["c"]], [grid["l"], grid["r"]]
+        for name in "xylr":
+            grid[name].axis("off")
     else:
-        fig, axes = plt.subplots(1, 3, figsize=(16, 4.4), layout="constrained")
+        fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), layout="constrained")
     binned = {}
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
         bins = defaultdict(list)
@@ -424,7 +418,7 @@ def plot_tracking(run: str):
     axes[0].legend(loc="lower right")
     for (level, step, text), (side, x, height) in zip(examples, [(0, 0.8, 0.3), (1, 0.05, 0.75), (1, 0.05, 0.3)]):
         start = step // width * width
-        axes[2].annotate(
+        axes[1].annotate(
             text, xy=(start + width / 2, standalone_share(binned[level][start])), xytext=(x, height),
             textcoords=margins[side].transAxes, va="center", ha="left" if side else "right", multialignment="left", fontsize=10.5, bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": "0.4"},
             arrowprops={"arrowstyle": "->", "color": "0.25"}, annotation_clip=False,
