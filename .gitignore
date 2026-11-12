@@ -8,3 +8,4 @@ wandb/
 *.log
 results.md
 figures/
+experiment_logs.md
