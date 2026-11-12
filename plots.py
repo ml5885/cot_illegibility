@@ -171,28 +171,21 @@ def sides(rows: list[dict], metric) -> list[tuple[float, float]]:
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
+    fig, (by_outcome, by_level) = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, layout="constrained")
     starts = range(0, max(max(by_step) for by_step in rows.values()) + 1, BIN)
-    centers = [s + BIN / 2 for s in starts]
     binned = lambda by_step: [[r for step in range(start, start + BIN) for r in by_step.get(step, [])] for start in starts]
     mean = lambda values: sum(values) / len(values) if len(values) >= MIN_SAMPLES else float("nan")
-    for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
-        gaps = [[wrong - right for wrong, right in sides(b, length)] for b in binned(rows[level])]
-        axes[0].plot(centers, [mean(g) for g in gaps], "o-", color=color, label=f"{level} swaps")
-        axes[2].plot(*smoothed(rows[level], newline), color=color)
     pooled = [sum((sides(b, newline) for b in bins), []) for bins in zip(*(binned(rows[level]) for level in rows))]
     for side, (name, color) in [(1, OUTCOMES[0]), (0, ("Incorrect", OUTCOMES[1][1]))]:
-        axes[1].plot(centers, [mean([pair[side] for pair in b]) for b in pooled], "o-", color=color, label=name)
-    axes[0].axhline(0, color="gray", linestyle=":", linewidth=1)
-    axes[0].set_title("Length: incorrect − correct")
-    axes[1].set_title("Newline use in mixed-outcome puzzles")
-    axes[1].legend(loc="upper right")
-    axes[2].set_title("Completions with a newline")
-    axes[2].legend(*axes[0].get_legend_handles_labels(), loc="upper right")
-    for ax in axes[1:]:
-        ax.yaxis.set_major_formatter("{x:.0%}")
-        ax.set_ylim(0, 0.9)
-    for ax in axes:
+        by_outcome.plot([s + BIN / 2 for s in starts], [mean([pair[side] for pair in b]) for b in pooled], "o-", color=color, label=name)
+    for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
+        by_level.plot(*smoothed(rows[level], newline), color=color, label=f"{level} swaps")
+    by_outcome.set_title("Completions with a newline (incorrect vs. correct)")
+    by_level.set_title("Completions with a newline (by swap count)")
+    by_outcome.yaxis.set_major_formatter("{x:.0%}")
+    by_outcome.set_ylim(0, 0.9)
+    for ax in (by_outcome, by_level):
+        ax.legend(loc="upper right")
         ax.set_xlabel("Training step")
         ax.set_xlim(-5, 205)
     fig.suptitle(model)
