@@ -1,6 +1,6 @@
 import pytest
 
-from traces import newline_after_swaps, puzzle, swap_steps
+from traces import newline_after_swaps, puzzle, step_counts, swap_steps
 
 TEMPLATE = "User: There are 6 boxes labeled A to F. A key is in box {}. {} Which box contains the key? Assistant: <think>"
 
@@ -110,3 +110,18 @@ def test_layout_does_not_change_the_reading():
 def test_newline_after_swaps_looks_at_each_written_step():
     completion = " 1. Swap A and B: The key moves to B.\n2. Swap B and C: The key moves to C. So it is in C.</think>"
     assert newline_after_swaps(row("A", ["AB", "BC", "DE"], completion)) == [True, False]
+
+
+@pytest.mark.parametrize(
+    "steps, expected",
+    [
+        (["A and B", "C and D", "B and C"], (0, 0)),
+        (["A and B", "C and D"], (1, 0)),
+        (["A and B", "C and D", "B and C", "B and C"], (0, 1)),
+        (["A and B", "E and F", "C and D", "B and C"], (0, 1)),
+        (["A and B", "C and E", "B and C"], (1, 1)),
+    ],
+)
+def test_step_counts_separates_left_out_from_extra_steps(steps, expected):
+    completion = " " + " ".join(f"{i}. Swap the contents of boxes {pair}: The key is in box A, so when we swap {pair} it stays." for i, pair in enumerate(steps, 1)) + "</think>"
+    assert step_counts(row("A", ["AB", "CD", "BC"], completion)) == expected

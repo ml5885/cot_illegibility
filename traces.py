@@ -53,15 +53,21 @@ def step_texts(reasoning: str, mentions: list[re.Match | None]) -> list[str | No
     return [m and reasoning[m.end() : next(s for s in starts if s > m.start())] for m in mentions]
 
 
+def step_pairs(reasoning: str, expected: int) -> list[re.Match]:
+    """The pairs of boxes that look like the start of a step: those heading a numbered item if there are enough
+    of them, else those worded "boxes X and Y", else every pair named."""
+    named = list(PAIR.finditer(reasoning))
+    heads = [m for m in named if HEADER.search(reasoning[max(0, m.start() - 80) : m.start()])]
+    worded = [m for m in named if reasoning[: m.start()].endswith("boxes ")]
+    return next((ms for ms in (heads, worded) if 2 * len(ms) >= expected), named)
+
+
 def swap_mentions(reasoning: str, swaps: list[tuple[str, str]]) -> list[re.Match | None]:
     """Where the reasoning takes up each swap, matched in order by the pair of boxes it names.
     The model repeats pairs inside a step and sometimes lists the swaps before working through them. So pairs
     that head a numbered step are used when there are enough of them, then pairs worded "boxes X and Y", then
     any pair; and of the earliest and the latest matching, the one whose steps more often place the key wins."""
-    named = list(PAIR.finditer(reasoning))
-    heads = [m for m in named if HEADER.search(reasoning[max(0, m.start() - 80) : m.start()])]
-    worded = [m for m in named if reasoning[: m.start()].endswith("boxes ")]
-    pool = next((ms for ms in (heads, worded) if 2 * len(ms) >= len(swaps)), named)
+    pool = step_pairs(reasoning, len(swaps))
     earliest = align(swaps[::-1], pool[::-1])[::-1]
     latest = align(swaps, pool)
     placed = lambda mentions: sum(bool(text and stated_boxes(text)) for text in step_texts(reasoning, mentions))
@@ -104,3 +110,22 @@ def newline_after_swaps(row: dict) -> list[bool]:
     reasoning = row["completion"].partition("</think>")[0]
     texts = step_texts(reasoning, swap_mentions(reasoning, puzzle(row)[0]))
     return ["\n" in text for text in texts if text is not None]
+
+
+def step_counts(row: dict) -> tuple[int, int]:
+    """How many of the puzzle's swaps the reasoning leaves out, and how many steps it writes that match no swap
+    of the puzzle at that point (a swap repeated, invented or miscopied). Only numbered or "boxes X and Y" steps
+    are counted as extra, from the first matched step on, so a pair repeated inside a step is not one."""
+    swaps = puzzle(row)[0]
+    reasoning = " ".join(row["completion"].partition("</think>")[0].split())
+    matched = [m for m in swap_mentions(reasoning, swaps) if m]
+    pool = step_pairs(reasoning, len(swaps))
+    if not matched or len(pool) == len(PAIR.findall(reasoning)) and len(pool) > 2 * len(swaps):
+        return len(swaps) - len(matched), 0
+    spans = {m.span() for m in matched}
+    numbered = all(HEADER.search(reasoning[max(0, m.start() - 80) : m.start()]) for m in pool)
+    extra = [
+        m for before, m in zip(pool, pool[1:])
+        if m.start() > matched[0].start() and m.span() not in spans and (numbered or set(m.groups()) != set(before.groups()))
+    ]
+    return len(swaps) - len(matched), len(extra)

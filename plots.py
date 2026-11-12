@@ -25,7 +25,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from traces import PAIR, START, newline_after_swaps, puzzle, swap_mentions, swap_steps
+from traces import PAIR, START, newline_after_swaps, puzzle, step_counts, swap_mentions, swap_steps
 
 plt.rcParams.update({
     "font.family": "serif",
@@ -555,23 +555,23 @@ def plot_okay(run: str):
 
 ERRORS = [
     ("Cut off at the token limit", "#eda100"),
-    ("Answer malformed", "0.6"),
+    ("Answer malformed", "0.65"),
     ("Left out a swap", "#2a78d6"),
-    ("Tracked a swap wrongly", "#eb6834"),
-    ("Reasoning right, answer differs", "#e87ba4"),
-    ("Key location not stated", "#1baf7a"),
+    ("Added a step that is not in the puzzle", "#1baf7a"),
+    ("Left one out and added one", "#e87ba4"),
+    ("Right steps, tracked wrongly", "#eb6834"),
+    ("Other", "0.3"),
 ]
 
 
 def error_cause(row: dict, max_tokens: int) -> str:
     """The first of these that applies to a response that scored 0."""
-    outcomes = tracking(row)
     if row["parsed"] is None:
         return ERRORS[0][0] if row["tokens"] >= max_tokens - 2 else ERRORS[1][0]
-    for outcome, cause in [("skipped", ERRORS[2][0]), ("wrong", ERRORS[3][0])]:
-        if outcome in outcomes:
-            return cause
-    return ERRORS[4][0] if set(outcomes) == {"right"} else ERRORS[5][0]
+    left_out, added = step_counts(row)
+    if left_out or added:
+        return ERRORS[4][0] if left_out and added else ERRORS[2][0] if left_out else ERRORS[3][0]
+    return ERRORS[5][0] if "wrong" in tracking(row) else ERRORS[6][0]
 
 
 def plot_errors(run: str, of_wrong: bool = False):
@@ -604,7 +604,7 @@ def plot_errors(run: str, of_wrong: bool = False):
         ax.set_xlabel("Training step")
     for ax in axes[:, 0]:
         ax.set_ylabel("Share of wrong responses" if of_wrong else "Share of responses")
-    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
+    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=4, fontsize=10)
     fig.suptitle(f"{args['model'].split('/')[-1]}: error analysis")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-{'error-shares' if of_wrong else 'errors'}.png", dpi=150)
