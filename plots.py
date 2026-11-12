@@ -371,8 +371,8 @@ def trace_parts(row: dict, count) -> dict:
 # Real sentences to show beside the standalone-statement panel: run -> (swap count, training step, text).
 EXAMPLES = {
     "swaps-7b-tags-v2": [
-        (4, 100, 'Step 100, with a standalone statement:\n"1. Swap the contents of boxes D and A:\nThe key, being in box D, will move to box A.\nSo now, the key is in box A."'),
-        (4, 187, 'Step 187, without one:\n"3. Swap the contents of boxes C and F:\nThe key, in E, is unaffected."'),
+        (4, 100, 'Step 100\n"1. Swap the contents of boxes D and A:\nThe key, being in box D, will move to box A.\nSo now, the key is in box A."'),
+        (4, 187, 'Step 187\n"5. Swap the contents of boxes A and E:\nThe key, initially in E, will move to box A."'),
     ],
 }
 
