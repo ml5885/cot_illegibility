@@ -534,8 +534,10 @@ def plot_errors(run: str, of_wrong: bool = False):
             for x, c, ok in zip(bins, causes, shown):
                 if ok:
                     ax.annotate(len(c), (x, 1), xytext=(0, 2), textcoords="offset points", ha="center", fontsize=8)
-        ax.set_title(f"{level} swaps" if trained else f"{level} swaps, held-out only")
+        ax.set_title(f"{level} swaps" if trained else f"{level} swaps, held-out only", pad=14 if of_wrong else None)
         ax.yaxis.set_major_formatter("{x:.0%}")
+        if of_wrong:
+            ax.set_yticks([0, 0.25, 0.5, 0.75, 1])
     for ax in axes[1]:
         ax.set_xlabel("Training step")
     for ax in axes[:, 0]:
