@@ -171,6 +171,7 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
 
 
 def plot_length_signal(run: str):
+    held_out = load(run)["eval"]
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, layout="constrained")
@@ -185,8 +186,16 @@ def plot_length_signal(run: str):
     axes[0].set_title("Completions containing")
     by_level = [(newline, "Completions with a newline"), (tokens, "Completion length in tokens"), (accuracy, "Accuracy")]
     for ax, (metric, title) in zip(axes[1:], by_level):
-        for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
-            ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
+        for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows | held_out)):
+            trained = level in rows
+            if trained:
+                ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
+            steps = sorted(held_out[level])
+            ax.plot(
+                steps, [sum(map(metric, held_out[level][s])) / len(held_out[level][s]) for s in steps],
+                "o" if trained else "o:", color=color, markeredgecolor="black", markersize=5,
+                label=None if trained else f"{level} swaps, held-out only",
+            )
         ax.set_title(title)
     for ax in axes:
         ax.set_ylim(0)
