@@ -172,31 +172,31 @@ def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, layout="constrained")
-    axes = axes.flatten()
-    pooled = defaultdict(list)
-    for by_step in rows.values():
-        for step, step_rows in by_step.items():
-            pooled[step] += step_rows
-    kinds = [("A newline", "\n", "#eb6834"), ("A blank line", "\n\n", "#e87ba4"), ("Two spaces in a row", "  ", "0.45")]
-    for name, text, color in kinds:
-        axes[0].plot(*smoothed(pooled, lambda row: float(text in row["completion"])), color=color, label=name, linewidth=2)
-    axes[0].set_title("Completions containing")
-    by_level = [(newline, "Completions with a newline"), (tokens, "Completion length in tokens"), (accuracy, "Accuracy")]
-    for ax, (metric, title) in zip(axes[1:], by_level):
+    accuracy_ax, length_ax, kinds_ax, newline_ax = axes.flatten()
+    by_level = [(accuracy_ax, accuracy, "Accuracy"), (length_ax, tokens, "Completion length in tokens"), (newline_ax, newline, "Completions with a newline")]
+    for ax, metric, title in by_level:
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows | held_out)):
             if level in rows:
                 ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
             else:
                 ax.plot(*held_out_curve(held_out[level], metric), color=color, label=f"{level} swaps, held-out only")
         ax.set_title(title)
-    for ax in axes:
+    pooled = defaultdict(list)
+    for by_step in rows.values():
+        for step, step_rows in by_step.items():
+            pooled[step] += step_rows
+    kinds = [("A newline", "\n", "#eb6834"), ("A blank line", "\n\n", "#e87ba4"), ("Two spaces in a row", "  ", "0.45")]
+    for name, text, color in kinds:
+        kinds_ax.plot(*smoothed(pooled, lambda row: float(text in row["completion"])), color=color, label=name, linewidth=2)
+    kinds_ax.set_title("Completions containing")
+    for ax in axes.flatten():
         ax.set_ylim(0)
-    for ax in axes[2:]:
-        ax.set_xlabel("Training step")
-    for ax in axes[[0, 1, 3]]:
+    for ax in (accuracy_ax, kinds_ax, newline_ax):
         ax.yaxis.set_major_formatter("{x:.0%}")
-    for ax in axes[:2]:
-        ax.legend(loc="best")
+    for ax in (kinds_ax, newline_ax):
+        ax.set_xlabel("Training step")
+    accuracy_ax.legend(loc="best")
+    kinds_ax.legend(loc="best")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
