@@ -6,6 +6,10 @@ from datasets import Dataset, load_dataset
 
 ANSWER = re.compile(r"Answer:\s*([^\n]+)")
 BOXED = re.compile(r"\\boxed\{(.*)\}")
+PROMPT = (
+    'Solve the following problem. Reason step by step, then end with a line of the form "Answer: X".\n\n'
+    "Problem: {}\nReasoning:"
+)
 
 
 @dataclass
@@ -24,7 +28,7 @@ def swap_problem(rng: random.Random, n_swaps: int, n_boxes: int = 6) -> Problem:
         lines.append(f"Swap the contents of boxes {a} and {b}.")
         key = b if key == a else a if key == b else key
     lines.append("Which box contains the key?")
-    return Problem("Problem: " + " ".join(lines) + "\nReasoning:", key, n_swaps)
+    return Problem(PROMPT.format(" ".join(lines)), key, n_swaps)
 
 
 def swap_problems(seed: int, n: int, n_swaps: int) -> list[Problem]:
@@ -34,10 +38,7 @@ def swap_problems(seed: int, n: int, n_swaps: int) -> list[Problem]:
 
 def math_problems(seed: int, n: int) -> list[Problem]:
     rows = load_dataset("allenai/Dolci-RL-Zero-Math-7B", split="train").shuffle(seed=seed)
-    return [
-        Problem(f"Problem: {row['prompt']}\nReasoning:", row["ground_truth"])
-        for row in rows.select(range(n))
-    ]
+    return [Problem(PROMPT.format(row["prompt"]), row["ground_truth"]) for row in rows.select(range(n))]
 
 
 def normalize(answer: str) -> str:

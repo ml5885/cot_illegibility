@@ -3,3 +3,5 @@ research_plan.md
 __pycache__/
 runs/
 .venv/
+wandb/
+*.log

@@ -9,6 +9,7 @@ from pathlib import Path
 from vllm import LLM, SamplingParams
 
 from tasks import Problem, dataset, parse_answer, reward
+from train import STOP
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", choices=["swaps", "math"], required=True)
@@ -26,7 +27,7 @@ problems = [Problem(**row) for row in dataset(args.task, args.seed, args.problem
 
 llm = LLM(args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed)
 sampling = SamplingParams(
-    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=["\nProblem:"]
+    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=STOP
 )
 start = time.time()
 outputs = llm.generate([p.prompt for p in problems], sampling)

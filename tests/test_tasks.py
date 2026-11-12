@@ -26,7 +26,8 @@ def test_swap_answer_matches_independent_simulation(n_swaps):
 
 def test_swap_prompt_format():
     prompt = swap_problem(random.Random(0), 3).prompt
-    assert prompt.startswith("Problem: There are 6 boxes labeled A to F. A key is in box ")
+    assert prompt.count("Problem:") == 1 and prompt.count("Answer:") == 1
+    assert "\n\nProblem: There are 6 boxes labeled A to F. A key is in box " in prompt
     assert prompt.endswith(" Which box contains the key?\nReasoning:")
     assert all(a != b for a, b in SWAP.findall(prompt))
 

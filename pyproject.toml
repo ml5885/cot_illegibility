@@ -7,7 +7,7 @@ dependencies = [
     "peft",
     "pytest",
     "trl",
-    "vllm",
+    "vllm>=0.32,<0.33",
     "wandb",
 ]
 
