@@ -45,6 +45,7 @@ def grpo_config(args: argparse.Namespace, out: Path):
         use_vllm=True,
         vllm_mode="colocate",
         vllm_gpu_memory_utilization=args.vllm_memory,
+        model_init_kwargs={"dtype": "bfloat16"},
         bf16=True,
         gradient_checkpointing=True,
         eval_strategy="steps",

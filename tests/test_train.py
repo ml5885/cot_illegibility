@@ -66,6 +66,7 @@ def test_one_optimizer_step_uses_every_prompt_once(prompts, generations, batch):
     assert c.generation_batch_size == prompts * generations
     assert c.steps_per_generation == c.gradient_accumulation_steps
     assert c.per_device_eval_batch_size == batch
+    assert c.model_init_kwargs == {"dtype": "bfloat16"}
 
 
 @pytest.mark.parametrize("prompts, generations, batch", [(32, 8, 12), (3, 8, 16), (32, 8, 4)])
