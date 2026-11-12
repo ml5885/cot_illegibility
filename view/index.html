@@ -88,6 +88,19 @@ mark.hit { background: #ffe066; color: inherit; }
 .timeline a { color: #339; cursor: pointer; text-decoration: underline; }
 .step-head { margin: 20px 0 8px; display: flex; gap: 8px; align-items: center; color: #666; }
 
+.curves { position: relative; }
+.curves-head { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; color: #52514e; }
+.curves-head select { font: inherit; padding: 3px 6px; border: 1px solid #ccc; background: #fff; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; color: #52514e; }
+.legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+.curves svg { display: block; width: 100%; height: auto; background: #fcfcfb; cursor: pointer; }
+.curves svg text { font: 11px 'SF Mono', SFMono-Regular, Menlo, monospace; fill: #898781; }
+.tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid #ddd; border-radius: 4px; padding: 6px 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); white-space: nowrap; display: none; z-index: 5; }
+.tip b { color: #0b0b0b; }
+.tip i { display: inline-block; width: 10px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 6px; }
+.timeline td.cell { cursor: pointer; }
+.timeline td.cell:hover { background: #f4f4ff; }
+
 .empty { padding: 60px; text-align: center; color: #999; }
 </style>
 </head>
@@ -127,13 +140,18 @@ mark.hit { background: #ffe066; color: inherit; }
   </div>
 
   <div class="section">
+    <h3>Curves</h3>
+    <p>Tick "Curves" (or press <b>p</b>) to plot the run across training, one line per level. Lines are training samples, averaged over the last 5 steps; dots are the held-out problems at each eval step. Choose accuracy, the share of completions with a parseable answer, or reasoning length. Hover for exact values. Click a dot to open that eval file, or anywhere else on the plot to open the training step under the cursor, filtered to the nearest line's level. The table underneath lists the held-out values; its cells are clickable too.</p>
+  </div>
+
+  <div class="section">
     <h3>Across steps</h3>
     <p>Tick "Across steps" (or press <b>c</b>) to follow one prompt through training: every completion sampled for it in every file of the same split, in step order, with outcome, parsed answer and reasoning length. Held-out (eval) prompts recur at every eval step, so use an eval file. Training prompts are drawn fresh and appear at one step only.</p>
   </div>
 
   <div class="section">
     <h3>Keys</h3>
-    <p><b>&larr; / &rarr;</b> (and the arrow buttons): previous / next prompt<br><b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group<br><b>c</b>: toggle across steps<br><b>r</b>: toggle raw completion</p>
+    <p><b>&larr; / &rarr;</b> (and the arrow buttons): previous / next prompt<br><b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group<br><b>p</b>: toggle curves<br><b>c</b>: toggle across steps<br><b>r</b>: toggle raw completion</p>
   </div>
 
   <div class="section">
@@ -165,6 +183,7 @@ mark.hit { background: #ffe066; color: inherit; }
     <input type="search" id="search" placeholder="Search completions...">
     <label><input type="checkbox" id="fws"> Show whitespace</label>
     <label title="Show the completion exactly as sampled, tags included ( r )"><input type="checkbox" id="fraw"> Raw</label>
+    <label title="Plot accuracy and reasoning length across steps; click a point to open its completions ( p )"><input type="checkbox" id="fcurves"> Curves</label>
     <label title="Show this prompt's completions at every step ( c )"><input type="checkbox" id="facross"> Across steps</label>
     <button id="info">?</button>
     <div class="nav-btns">
@@ -326,6 +345,167 @@ async function renderAcross(it) {
   $('content').innerHTML = html;
 }
 
+const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300'];
+const METRICS = {
+  accuracy: { label: 'Accuracy', rate: true },
+  parsed: { label: 'Completions with a parseable answer', rate: true },
+  length: { label: 'Reasoning length (characters)', rate: false },
+};
+const SMOOTH = 5;
+const statsCache = new Map();
+let curves = null;
+
+// Per-level sums for one file; the rows themselves are not kept.
+function fileStats(run, file) {
+  const key = `${run}/${file}`;
+  if (!statsCache.has(key)) {
+    statsCache.set(key, fetch(`${RUNS_DIR}${run}/rollouts/${file}`).then(r => r.text()).then(text => {
+      const by = {};
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        const it = JSON.parse(line);
+        const s = by[it.level] ??= { n: 0, accuracy: 0, parsed: 0, length: 0 };
+        s.n++;
+        s.accuracy += it.reward;
+        s.parsed += it.parsed !== null;
+        s.length += splitCompletion(it.prompt, it.completion)[0].trim().length;
+      }
+      return by;
+    }));
+  }
+  return statsCache.get(key);
+}
+
+async function renderCurves() {
+  const run = $('frun').value;
+  $('content').innerHTML = `<div class="empty">Reading ${files.length} files...</div>`;
+  const stats = await Promise.all(files.map(f => fileStats(run, f)));
+  if (!$('fcurves').checked || $('frun').value !== run) return;
+  const levels = [...new Set(stats.flatMap(s => Object.keys(s).map(Number)))].sort((a, b) => a - b);
+  const points = { train: [], eval: [] };
+  files.forEach((file, k) => {
+    const { split, step } = parseFile(file);
+    if (points[split]) points[split].push({ file, step, by: stats[k] });
+  });
+  let task = '';
+  try { task = JSON.parse($('runargs').textContent).task; } catch (err) {}
+  curves = { levels, points, task, metric: curves ? curves.metric : 'accuracy' };
+  drawCurves();
+}
+
+function levelLabel(level) {
+  return curves.task === 'swaps' ? `${level} swap${level === 1 ? '' : 's'}` : `level ${level}`;
+}
+
+function drawCurves() {
+  const { levels, points, metric } = curves;
+  const m = METRICS[metric];
+  const value = (p, level) => p.by[level] ? p.by[level][metric] / p.by[level].n : null;
+  const fmt = v => v === null ? '–' : m.rate ? v.toFixed(2) : String(Math.round(v));
+  // Training line: mean of the last SMOOTH steps that have this level.
+  const lines = levels.map(level => {
+    const raw = points.train.map(p => ({ step: p.step, v: value(p, level) })).filter(q => q.v !== null);
+    return raw.map((q, i) => {
+      const w = raw.slice(Math.max(0, i - SMOOTH + 1), i + 1);
+      return { step: q.step, v: w.reduce((a, b) => a + b.v, 0) / w.length };
+    });
+  });
+  const dots = levels.map(level => points.eval.map(p => ({ step: p.step, file: p.file, v: value(p, level) })).filter(q => q.v !== null));
+  const steps = [...new Set([...points.train, ...points.eval].map(p => p.step))].sort((a, b) => a - b);
+  if (steps.length < 2) {
+    $('content').innerHTML = '<div class="empty">This run has a single file, so there is nothing to plot across steps.</div>';
+    return;
+  }
+
+  const W = 860, H = 340, L = 52, R = 16, T = 12, B = 34;
+  const all = [...lines.flat(), ...dots.flat()].map(q => q.v);
+  const top = m.rate ? 1 : Math.max(...all) * 1.08;
+  const x = step => L + (step - steps[0]) / (steps[steps.length - 1] - steps[0]) * (W - L - R);
+  const y = v => T + (1 - v / top) * (H - T - B);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => f * top);
+  const xTicks = steps.filter((s, i) => i % Math.ceil(steps.length / 8) === 0);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" id="plot">`;
+  for (const t of yTicks) {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" stroke="${t === 0 ? '#c3c2b7' : '#e1e0d9'}"/>` +
+      `<text x="${L - 8}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`;
+  }
+  for (const s of xTicks) svg += `<text x="${x(s)}" y="${H - B + 16}" text-anchor="middle">${s}</text>`;
+  svg += `<text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">training step</text>`;
+  if (metric === 'accuracy' && curves.task === 'swaps') {
+    svg += `<line x1="${L}" x2="${W - R}" y1="${y(1 / 6)}" y2="${y(1 / 6)}" stroke="#898781" stroke-dasharray="2 4"/>` +
+      `<text x="${W - R - 4}" y="${y(1 / 6) - 5}" text-anchor="end">guessing</text>`;
+  }
+  svg += `<line id="cross" y1="${T}" y2="${H - B}" stroke="#898781" visibility="hidden"/>`;
+  lines.forEach((line, k) => {
+    if (line.length) svg += `<polyline fill="none" stroke="${SERIES[k % SERIES.length]}" stroke-width="2" stroke-linejoin="round" points="${line.map(q => `${x(q.step)},${y(q.v)}`).join(' ')}"/>`;
+  });
+  dots.forEach((ds, k) => {
+    for (const q of ds) {
+      svg += `<circle cx="${x(q.step)}" cy="${y(q.v)}" r="5" fill="${SERIES[k % SERIES.length]}" stroke="#fcfcfb" stroke-width="2"/>` +
+        `<circle cx="${x(q.step)}" cy="${y(q.v)}" r="11" fill="transparent" data-file="${esc(q.file)}" data-level="${levels[k]}"/>`;
+    }
+  });
+  svg += '</svg>';
+
+  const legend = levels.map((level, k) => `<span><i style="border-color:${SERIES[k % SERIES.length]}"></i>${levelLabel(level)}</span>`).join('');
+  let table = '';
+  if (points.eval.length) {
+    table = `<table class="timeline"><tr><th>Held-out, step</th>${levels.map(l => `<th>${levelLabel(l)}</th>`).join('')}</tr>` +
+      points.eval.map(p => `<tr><td>${p.step}</td>${levels.map(l =>
+        `<td class="cell" data-file="${esc(p.file)}" data-level="${l}">${fmt(value(p, l))}</td>`).join('')}</tr>`).join('') + '</table>';
+  }
+  $('content').innerHTML =
+    `<div class="curves"><div class="curves-head"><label>Metric: <select id="fmetric">` +
+    Object.entries(METRICS).map(([k, v]) => `<option value="${k}"${k === metric ? ' selected' : ''}>${v.label}</option>`).join('') +
+    `</select></label><span>Lines: training samples (${SMOOTH}-step mean). Dots: held-out. Click a point to open its completions.</span></div>` +
+    `<div class="legend">${legend}</div>${svg}<div class="tip" id="tip"></div></div><div style="height:16px"></div>${table}`;
+
+  const nearestStep = e => {
+    const box = $('plot').getBoundingClientRect();
+    const px = (e.clientX - box.left) / box.width * W;
+    const py = (e.clientY - box.top) / box.height * H;
+    const step = steps.reduce((a, b) => Math.abs(x(b) - px) < Math.abs(x(a) - px) ? b : a);
+    return { step, px, py, box };
+  };
+  $('fmetric').addEventListener('change', () => { curves.metric = $('fmetric').value; drawCurves(); });
+  $('plot').addEventListener('mousemove', e => {
+    const { step, box } = nearestStep(e);
+    const cross = document.getElementById('cross');
+    cross.setAttribute('x1', x(step)); cross.setAttribute('x2', x(step)); cross.setAttribute('visibility', 'visible');
+    const rows = levels.map((level, k) => {
+      const tr = lines[k].find(q => q.step === step), ev = dots[k].find(q => q.step === step);
+      return `<div><i style="border-color:${SERIES[k % SERIES.length]}"></i>${levelLabel(level)}: <b>${fmt(tr ? tr.v : null)}</b>${ev ? ` · held-out <b>${fmt(ev.v)}</b>` : ''}</div>`;
+    }).join('');
+    const tip = $('tip');
+    tip.innerHTML = `<div>step <b>${step}</b></div>${rows}`;
+    tip.style.display = 'block';
+    const left = x(step) / W * box.width;
+    tip.style.left = `${left > box.width / 2 ? left - tip.offsetWidth - 12 : left + 12}px`;
+    tip.style.top = `${box.top - $('plot').parentElement.getBoundingClientRect().top + 8}px`;
+  });
+  $('plot').addEventListener('mouseleave', () => {
+    $('tip').style.display = 'none';
+    document.getElementById('cross').setAttribute('visibility', 'hidden');
+  });
+  $('plot').addEventListener('click', e => {
+    if (e.target.dataset.file) return openFromCurves(e.target.dataset.file, e.target.dataset.level);
+    const { step, py } = nearestStep(e);
+    const at = points.train.find(p => p.step === step) || points.eval.find(p => p.step === step);
+    const near = levels.map((level, k) => ({ level, q: lines[k].find(q => q.step === step) })).filter(c => c.q)
+      .reduce((a, b) => Math.abs(y(b.q.v) - py) < Math.abs(y(a.q.v) - py) ? b : a, { level: '', q: { v: Infinity } });
+    openFromCurves(at.file, near.level);
+  });
+}
+
+function openFromCurves(file, level) {
+  $('fcurves').checked = false;
+  setParams({ curves: 0, i: 0 });
+  $('foutcome').value = ''; $('search').value = '';
+  fillSelect($('flevel'), ['', String(level)], String(level));
+  loadFile(file);
+}
+
 async function loadFile(file, keepIndex = false) {
   setParams({ file });
   $('ffile').value = file;
@@ -421,6 +601,7 @@ function block(kind, title, text) {
 
 function render() {
   $('stats').innerHTML = statsHTML();
+  if ($('fcurves').checked) return renderCurves();
   const shownPrompts = [...new Set(filtered.map(f => f.prompt))];
   const promptAt = filtered.length ? shownPrompts.indexOf(filtered[idx].prompt) : 0;
   $('prev').disabled = promptAt <= 0;
@@ -501,6 +682,7 @@ $('ffile').addEventListener('change', () => loadFile($('ffile').value, true));
 for (const id of ['foutcome', 'flevel', 'fsort']) $(id).addEventListener('change', () => applyFilter(true));
 $('fws').addEventListener('change', render);
 $('fraw').addEventListener('change', render);
+$('fcurves').addEventListener('change', () => { setParams({ curves: $('fcurves').checked ? 1 : 0 }); render(); });
 $('facross').addEventListener('change', () => { setParams({ across: $('facross').checked ? 1 : 0 }); render(); });
 $('search').addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => applyFilter(true), 300); });
 $('prev').addEventListener('click', () => goPrompt(-1));
@@ -513,6 +695,8 @@ $('overlay').addEventListener('click', toggleSidebar);
 $('content').addEventListener('click', e => {
   const header = e.target.closest('.msg-header');
   if (header) { collapsed[header.dataset.kind] = !collapsed[header.dataset.kind]; render(); }
+  const cell = e.target.closest('td.cell');
+  if (cell) return openFromCurves(cell.dataset.file, cell.dataset.level);
   const link = e.target.closest('a[data-file]');
   if (link) { $('facross').checked = false; loadFile(link.dataset.file, true); }
   const chip = e.target.closest('.chip');
@@ -527,6 +711,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'k') go(1);
   if (e.key === 'c') $('facross').click();
   if (e.key === 'r') $('fraw').click();
+  if (e.key === 'p') $('fcurves').click();
   if (e.key === '[') goFile(-1);
   if (e.key === ']') goFile(1);
   if (e.key === 'g' && filtered.length) {
@@ -547,6 +732,7 @@ document.addEventListener('keydown', e => {
   const run = runs.includes(requested) ? requested : runs[0];
   fillSelect($('frun'), runs, run);
   $('facross').checked = params().get('across') === '1';
+  $('fcurves').checked = params().get('curves') === '1';
   loadRun(run);
 })();
 </script>
