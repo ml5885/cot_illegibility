@@ -23,6 +23,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
+from traces import PAIR, START, puzzle, swap_mentions, swap_steps
+
 plt.rcParams.update({
     "font.family": "serif",
     "font.size": 13,
@@ -46,7 +48,6 @@ plt.rcParams.update({
 WINDOW = 5
 BIN, MIN_SAMPLES = 20, 5
 OUTCOMES = [("Correct", "#2a78d6"), ("Incorrect", "#eb6834")]
-START = re.compile(r"A key is in box (\w)\.")
 
 
 def load(run: str) -> dict[str, dict[int, dict[int, list[dict]]]]:
@@ -279,7 +280,6 @@ def plot_token_limit(run: str):
 
 
 PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
-PAIR = re.compile(r"\b([A-F]) and ([A-F])\b")
 LOCATIONS = [
     "Right after <think>", "After the opening sentence", "Between swap steps",
     "Just before </think>", "Between the tags", "Inside the answer",
@@ -382,54 +382,8 @@ def plot_groups(run: str):
     fig.savefig(f"figures/{run}-groups.png", dpi=150)
 
 
-SWAP = re.compile(r"Swap the contents of boxes (\w) and (\w)\.")
 CONCLUSION = re.compile(r"Therefore|Thus|So,? after|After all|After these|In conclusion|Finally,|Hence|At the end|After performing|After completing")
 PARTS = ["Opening", "Swaps that move the key", "Swaps that leave it", "Conclusion", "Closing tag and answer"]
-
-
-def puzzle(row: dict) -> tuple[list[tuple[str, str]], list[str], list[bool]]:
-    """The swaps of a row's puzzle, the key's box after each, and whether each moved the key."""
-    question = row["prompt"].split("User:")[-1]
-    key, after, moves = START.search(question).group(1), [], []
-    swaps = SWAP.findall(question)
-    for a, b in swaps:
-        moves.append(key in (a, b))
-        key = b if key == a else a if key == b else key
-        after.append(key)
-    return swaps, after, moves
-
-
-def swap_mentions(reasoning: str, swaps: list[tuple[str, str]]) -> list[re.Match | None]:
-    """Where the reasoning takes up each swap, matched in order by the pair of boxes it names.
-    "boxes X and Y" is preferred, since the model often repeats the bare pair inside a step."""
-    found, at = [], 0
-    for a, b in swaps:
-        named = [m for m in PAIR.finditer(reasoning, at) if set(m.groups()) == {a, b}]
-        mention = next((m for m in named if reasoning[: m.start()].endswith("boxes ")), named[0] if named else None)
-        found.append(mention)
-        at = mention.end() if mention else at
-    return found
-
-
-def swap_steps(row: dict) -> list[tuple[str, bool]]:
-    """For each swap: whether the last box named in its step is where the key really is, and whether the step
-    states that location in more than one sentence. Whitespace is normalized first."""
-    swaps, after, _ = puzzle(row)
-    reasoning = " ".join(row["completion"].partition("</think>")[0].split())
-    mentions = swap_mentions(reasoning, swaps)
-    starts = [m.start() for m in mentions if m] + [len(reasoning)]
-    steps = []
-    for mention, box in zip(mentions, after):
-        if not mention:
-            steps.append(("skipped", False))
-            continue
-        sentences = reasoning[mention.end() : next(s for s in starts if s > mention.start())].split(". ")
-        named = [re.findall(r"\b[A-F]\b", sentence) for sentence in sentences]
-        last = [letters[-1] for letters in named if letters]
-        outcome = "unstated" if not last else "right" if last[-1] == box else "wrong"
-        restated = sum("key" in sentence and letters[-1:] == last[-1:] for sentence, letters in zip(sentences, named)) > 1
-        steps.append((outcome, bool(last) and restated))
-    return steps
 
 
 def tracking(row: dict) -> list[str]:
