@@ -27,7 +27,7 @@ def test_swap_answer_matches_independent_simulation(n_swaps):
 def test_swap_question_format():
     question = swap_problem(random.Random(0), 3).question
     assert question.startswith("There are 6 boxes labeled A to F. A key is in box ")
-    assert question.endswith(" Which box contains the key?")
+    assert question.endswith(" Which box contains the key? Answer with the letter of the box.")
     assert all(a != b for a, b in SWAP.findall(question))
 
 
@@ -120,13 +120,13 @@ def test_template_has_one_slot_and_a_reachable_stop(fmt):
 def test_tags_prompt_ends_inside_an_open_think_tag():
     prompt = dataset("swaps", "train", 0, 2, [3], TAGS)["prompt"][0]
     assert prompt.startswith("A conversation between User and Assistant.")
-    assert "User: There are 6 boxes" in prompt and prompt.endswith("Which box contains the key? Assistant: <think>")
+    assert "User: There are 6 boxes" in prompt and prompt.endswith("Answer with the letter of the box. Assistant: <think>")
 
 
 def test_plain_prompt_has_no_tags():
     prompt = dataset("swaps", "train", 0, 2, [3], PLAIN)["prompt"][0]
     assert "<think>" not in prompt and "<answer>" not in prompt
-    assert "\n\nProblem: There are 6 boxes" in prompt and prompt.endswith("Which box contains the key?\nReasoning:")
+    assert "\n\nProblem: There are 6 boxes" in prompt and prompt.endswith("Answer with the letter of the box.\nReasoning:")
 
 
 def test_formats_share_the_same_problems():

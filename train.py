@@ -104,6 +104,9 @@ def main():
             r=args.lora_rank, lora_alpha=2 * args.lora_rank, target_modules="all-linear", task_type="CAUSAL_LM"
         ),
     )
+    # vLLM's transformers backend patches the backbone class's __call__ in place to consult this
+    # flag, which only its own instances set; the trainer's copy must take the plain forward.
+    type(trainer.model.get_base_model().base_model).do_not_compile = True
     trainer.train()
     trainer.save_model(str(out / "final"))
 

@@ -73,7 +73,7 @@ def swap_problem(rng: random.Random, n_swaps: int, n_boxes: int = 6) -> Problem:
         a, b = rng.sample(boxes, 2)
         lines.append(f"Swap the contents of boxes {a} and {b}.")
         key = b if key == a else a if key == b else key
-    lines.append("Which box contains the key?")
+    lines.append("Which box contains the key? Answer with the letter of the box.")
     return Problem(" ".join(lines), key, n_swaps)
 
 

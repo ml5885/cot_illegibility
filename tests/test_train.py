@@ -41,6 +41,7 @@ def test_default_config_is_outcome_only_no_kl():
     c = config()
     assert c.beta == 0.0 and c.temperature == 1.0 and c.loss_type == "dapo"
     assert c.generation_kwargs == {"stop": ["</answer>"], "include_stop_str_in_output": True}
+    assert c.use_vllm and c.vllm_mode == "colocate"
 
 
 def test_plain_format_changes_only_the_stop_string():
@@ -56,7 +57,6 @@ def test_logged_reward_uses_the_given_format(tmp_path):
     assert logged_reward(tmp_path, TAGS, lambda: (0, "train"))(completions=completions, **kwargs) == [1.0]
     assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"))(completions=completions, **kwargs) == [0.0]
     assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"))(completions=["x\nAnswer: C"], **kwargs) == [1.0]
-    assert c.use_vllm and c.vllm_mode == "colocate"
 
 
 @pytest.mark.parametrize("prompts, generations, batch", [(32, 8, 16), (4, 4, 8), (8, 16, 16), (32, 8, 256)])
