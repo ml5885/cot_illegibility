@@ -169,8 +169,8 @@ def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     margins = [
-        (length, "Extra length of incorrect responses (characters)"),
-        (newline, "Extra newline use of incorrect responses"),
+        (length, "Length: incorrect − correct"),
+        (newline, "Newline use: incorrect − correct"),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
