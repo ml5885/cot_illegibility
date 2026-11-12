@@ -1,7 +1,6 @@
 """Per-run training curves from saved rollouts: uv run --with matplotlib plots.py RUN [RUN ...]"""
 
 import json
-import re
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -10,7 +9,6 @@ import matplotlib.pyplot as plt
 
 plt.rcParams["font.family"] = "serif"
 
-START = re.compile(r"A key is in box (\w)\.")
 WINDOW = 5
 
 
@@ -29,10 +27,6 @@ def accuracy(row: dict) -> float:
     return row["reward"]
 
 
-def names_start(row: dict) -> float:
-    return float(row["parsed"] is not None and row["parsed"].strip() == START.search(row["prompt"]).group(1))
-
-
 def length(row: dict) -> float:
     return len(row["completion"])
 
@@ -45,9 +39,9 @@ def smoothed(by_step: dict[int, list[dict]], metric) -> tuple[list[int], list[fl
 
 def plot(run: str):
     rows = load(run)
-    panels = [(accuracy, "Accuracy"), (names_start, "Answers naming the starting box"), (length, "Completion length (characters)")]
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
-    for ax, (metric, title) in zip(axes, panels):
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    for ax, (metric, title) in zip(axes, [(accuracy, "Accuracy"), (length, "Completion length (characters)")]):
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows["train"])):
             ax.plot(*smoothed(rows["train"][level], metric), color=color, label=f"{level} swaps")
             held_out = rows["eval"][level]
@@ -58,13 +52,12 @@ def plot(run: str):
                 color=color,
                 markeredgecolor="black",
             )
-        if metric is not length:
-            ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
-            ax.set_ylim(-0.03, 1.03)
         ax.set_title(title)
         ax.set_xlabel("Training step")
-    axes[2].legend(title=f"lines: train (mean of last {WINDOW} steps)\ndots: held-out", fontsize=8, title_fontsize=8)
-    fig.suptitle(run)
+    axes[0].axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
+    axes[0].set_ylim(-0.03, 1.03)
+    axes[1].legend()
+    fig.suptitle(f"{model} on the box-swap task. Lines: training samples ({WINDOW}-step mean). Dots: held-out puzzles.")
     fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}.png", dpi=150)
