@@ -26,7 +26,11 @@ plt.rcParams.update({
     "figure.titlesize": 14,
     "axes.spines.top": False,
     "axes.spines.right": False,
-    "legend.frameon": False,
+    "legend.frameon": True,
+    "legend.fancybox": True,
+    "legend.facecolor": "white",
+    "legend.edgecolor": "black",
+    "legend.framealpha": 1,
 })
 
 WINDOW = 5
