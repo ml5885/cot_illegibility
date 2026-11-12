@@ -371,8 +371,8 @@ def trace_parts(row: dict, count) -> dict:
 # Real sentences to show beside the standalone-statement panel: run -> (swap count, training step, text).
 EXAMPLES = {
     "swaps-7b-tags-v2": [
-        (4, 100, 'Step 100, with a standalone statement:\n"The key, being in box D, will move\nto box A. So now, the key is in box A."'),
-        (4, 187, 'Step 187, without one:\n"The key, in E, is unaffected."'),
+        (4, 100, 'Step 100, with a standalone statement:\n"1. Swap the contents of boxes D and A:\nThe key, being in box D, will move to box A.\nSo now, the key is in box A."'),
+        (4, 187, 'Step 187, without one:\n"3. Swap the contents of boxes C and F:\nThe key, in E, is unaffected."'),
     ],
 }
 
@@ -383,8 +383,8 @@ def plot_tracking(run: str):
     width, examples = 5, EXAMPLES.get(run, [])
     panels = [("Swaps followed by the right key location", right_share), ("Swaps followed by a standalone location statement", standalone_share)]
     fig, axes = plt.subplots(
-        1, 3 if examples else 2, figsize=(15.5 if examples else 11, 4.4), layout="constrained",
-        width_ratios=[1, 1, 0.8] if examples else [1, 1],
+        1, 3 if examples else 2, figsize=(16 if examples else 11, 4.4), layout="constrained",
+        width_ratios=[1, 1, 0.9] if examples else [1, 1],
     )
     binned = {}
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
