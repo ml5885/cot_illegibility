@@ -349,7 +349,7 @@ async function loadFile(file, keepIndex = false) {
     if (!groups.has(it.prompt)) groups.set(it.prompt, []);
     groups.get(it.prompt).push(it);
     it.group = groups.get(it.prompt);
-    it.groupId = groups.size;
+    it.groupId = [...groups.keys()].indexOf(it.prompt) + 1;
     return it;
   });
 
