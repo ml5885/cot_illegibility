@@ -1,4 +1,5 @@
 plan.md
-research_plan.md__pycache__/
+research_plan.md
+__pycache__/
 runs/
 .venv/
