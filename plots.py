@@ -19,9 +19,6 @@ import matplotlib.pyplot as plt
 
 plt.rcParams.update({
     "font.family": "serif",
-    "font.serif": ["cmr10"],
-    "mathtext.fontset": "cm",
-    "axes.formatter.use_mathtext": True,
     "font.size": 13,
     "axes.titlesize": 13,
     "axes.labelsize": 13,
