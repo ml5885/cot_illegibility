@@ -162,37 +162,18 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
     fig.savefig(f"figures/{run}-{suffix}.png", dpi=150)
 
 
-def sides(rows: list[dict], metric) -> list[tuple[float, float]]:
-    """(incorrect mean, correct mean) of the metric, for each puzzle whose samples were not all scored alike."""
-    puzzles = defaultdict(lambda: ([], []))
-    for row in rows:
-        puzzles[row["prompt"]][int(row["reward"])].append(metric(row))
-    return [(sum(wrong) / len(wrong), sum(right) / len(right)) for wrong, right in puzzles.values() if wrong and right]
-
-
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey="row", layout="constrained")
-    starts = range(0, max(max(by_step) for by_step in rows.values()) + 1, BIN)
-    binned = lambda by_step: [[r for step in range(start, start + BIN) for r in by_step.get(step, [])] for start in starts]
-    mean = lambda values: sum(values) / len(values) if len(values) >= MIN_SAMPLES else float("nan")
-    for (by_outcome, by_level), metric, title in zip(axes, [newline, tokens], ["Completions with a newline", "Completion length in tokens"]):
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), layout="constrained")
+    for ax, metric, title in zip(axes, [newline, tokens], ["Completions with a newline", "Completion length in tokens"]):
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
-            pairs = [sides(b, metric) for b in binned(rows[level])]
-            for side, style in [(1, "o-"), (0, "o--")]:
-                by_outcome.plot([s + BIN / 2 for s in starts], [mean([pair[side] for pair in b]) for b in pairs], style, color=color)
-            by_level.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
-        by_outcome.set_title(f"{title} (incorrect vs. correct)")
-        by_level.set_title(f"{title} (by swap count)")
-        by_outcome.set_ylim(0)
-    axes[0, 0].yaxis.set_major_formatter("{x:.0%}")
-    styles = [plt.Line2D([], [], color="0.3", linestyle=style, label=name) for style, name in [("-", "Correct"), ("--", "Incorrect")]]
-    axes[0, 0].legend(handles=styles, loc="upper right")
-    axes[0, 1].legend(loc="upper right")
-    for ax in axes[1]:
+            ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
+        ax.set_title(title)
         ax.set_xlabel("Training step")
-        ax.set_xlim(-5, 205)
+        ax.set_ylim(0)
+    axes[0].yaxis.set_major_formatter("{x:.0%}")
+    axes[0].legend(loc="upper right")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
