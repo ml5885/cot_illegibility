@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rollout Viewer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font: 13px/1.6 'SF Mono', SFMono-Regular, Menlo, monospace; background: #fff; color: #111; }
+
+#loading { padding: 60px; text-align: center; color: #888; white-space: pre-wrap; }
+#app { display: none; }
+
+nav { padding: 10px 48px; border-bottom: 1px solid #eee; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; background: #fff; z-index: 10; }
+nav .stats { color: #666; flex-basis: 100%; margin-bottom: 2px; }
+nav select, nav input { font: inherit; padding: 3px 6px; border: 1px solid #ccc; background: #fff; }
+nav input[type="search"] { width: 200px; }
+nav label { color: #444; }
+nav button { font: inherit; padding: 3px 10px; cursor: pointer; border: 1px solid #ccc; background: #fff; }
+nav button:disabled { opacity: 0.3; cursor: default; }
+nav .nav-btns { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+nav .nav-btns span { color: #666; min-width: 110px; text-align: center; }
+.good { color: #070; }
+.bad { color: #a00; }
+.warn { color: #a50; }
+
+#sidebar { position: fixed; top: 0; right: -480px; width: 480px; max-width: 100%; height: 100%; background: #fff; border-left: 1px solid #ddd; z-index: 100; transition: right 0.2s ease; overflow-y: auto; padding: 28px 32px; box-shadow: -4px 0 20px rgba(0,0,0,0.05); }
+#sidebar.open { right: 0; }
+#overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.15); z-index: 99; display: none; }
+#overlay.open { display: block; }
+#sidebar h2 { font-size: 15px; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+#sidebar h3 { font-size: 13px; margin-bottom: 8px; color: #222; }
+#sidebar p { color: #444; margin-bottom: 10px; }
+#sidebar pre { white-space: pre-wrap; word-break: break-word; font: inherit; color: #333; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 10px 12px; }
+#sidebar .def { margin-bottom: 10px; }
+#sidebar .def-term { font-weight: bold; color: #111; margin-bottom: 2px; }
+#sidebar .def-desc { color: #555; }
+#sidebar .close-btn { position: absolute; top: 12px; right: 16px; font-size: 18px; cursor: pointer; color: #999; background: none; border: none; font-family: inherit; }
+#sidebar .section { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #f0f0f0; }
+#sidebar .section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+.container { max-width: 900px; margin: 0 auto; padding: 24px 20px 40px; }
+
+.meta-panel { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: bold; }
+.badge.correct { background: #dfd; color: #070; }
+.badge.wrong { background: #fdd; color: #a00; }
+.badge.unparsed { background: #fed; color: #a50; }
+.badge.tag { background: #eef; color: #339; font-weight: normal; }
+
+.meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 24px; margin-bottom: 16px; padding: 10px 12px; background: #fafafa; border-radius: 4px; border: 1px solid #eee; }
+.meta-grid dt { color: #888; }
+.meta-grid dd { color: #333; margin-bottom: 2px; word-break: break-word; }
+
+.group { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; color: #888; }
+.chip { width: 22px; height: 22px; border-radius: 3px; border: 1px solid transparent; cursor: pointer; font: inherit; font-size: 10px; line-height: 20px; text-align: center; }
+.chip.correct { background: #dfd; color: #070; }
+.chip.wrong { background: #fdd; color: #a00; }
+.chip.unparsed { background: #fed; color: #a50; }
+.chip.current { border-color: #111; font-weight: bold; }
+.chip.hidden-by-filter { opacity: 0.45; }
+
+.msg { margin-bottom: 16px; border-radius: 4px; overflow: hidden; }
+.msg:last-child { margin-bottom: 0; }
+.msg-header { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 5px 12px; font-weight: bold; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; }
+.msg-header .toggle { font-size: 9px; color: #999; }
+.msg-header:hover .toggle { color: #555; }
+.msg-header .toggle::after { content: '\25BC'; }
+.msg.collapsed .msg-header .toggle::after { content: '\25B6'; }
+.msg.collapsed .msg-body { display: none; }
+.msg-body { padding: 12px; }
+.msg-body pre { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; }
+
+.msg.prompt .msg-header { background: #e8e8e8; color: #555; }
+.msg.prompt .msg-body { background: #f7f7f7; }
+.msg.reasoning .msg-header { background: #f0f0e0; color: #665; }
+.msg.reasoning .msg-body { background: #fffff0; }
+.msg.final .msg-header { background: #e0ece0; color: #454; }
+.msg.final .msg-body { background: #f4faf4; }
+
+mark.hit { background: #ffe066; color: inherit; }
+.nonascii { background: #e4e0ff; border-bottom: 1px solid #86c; }
+.ws { color: #bbb; }
+
+.empty { padding: 60px; text-align: center; color: #999; }
+</style>
+</head>
+<body>
+
+<div id="loading">Looking for runs...</div>
+
+<div id="overlay"></div>
+<div id="sidebar">
+  <button class="close-btn" id="close">&times;</button>
+  <h2>Reference Guide</h2>
+
+  <div class="section">
+    <h3>What you are looking at</h3>
+    <p>One sampled completion at a time. A <b>run</b> is a directory under <code>runs/</code>. Each run saves every completion it samples, one file per split and training step.</p>
+    <div class="def"><div class="def-term">train</div><div class="def-desc">The completions sampled for the optimizer step with that number. Step 0 is the untouched base model.</div></div>
+    <div class="def"><div class="def-term">eval</div><div class="def-desc">The fixed held-out problems, sampled again at that step. Compare the same problems across steps here.</div></div>
+    <div class="def"><div class="def-term">baseline</div><div class="def-desc">Base-model samples from <code>baseline.py</code>, with no training.</div></div>
+  </div>
+
+  <div class="section">
+    <h3>Outcome</h3>
+    <div class="def"><div class="def-term good">Correct</div><div class="def-desc">The parsed answer matches. Reward 1.</div></div>
+    <div class="def"><div class="def-term bad">Wrong</div><div class="def-desc">An answer was given in the required format but it is wrong. Reward 0.</div></div>
+    <div class="def"><div class="def-term warn">No answer</div><div class="def-desc">No answer in the required format (missing tags, cut off at the token limit, text after the answer line). Reward 0.</div></div>
+  </div>
+
+  <div class="section">
+    <h3>Group</h3>
+    <p>The row of squares shows every completion sampled for the same prompt in this file, colored by outcome. GRPO scores each one against the others in its group. Click a square to jump to it; faded squares are hidden by the current filters.</p>
+  </div>
+
+  <div class="section">
+    <h3>Reasoning and answer</h3>
+    <p>The completion is split for display only: the reasoning is everything before <code>&lt;/think&gt;</code> (tags format) or before the last line (plain format). Reward never looks at the reasoning.</p>
+    <p><span class="nonascii">Shaded characters</span> are non-ASCII: other scripts, unusual symbols. Turn on "Show whitespace" to see newlines and repeated spaces.</p>
+  </div>
+
+  <div class="section">
+    <h3>Keys</h3>
+    <p><b>&larr; / &rarr;</b> or <b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group</p>
+  </div>
+
+  <div class="section">
+    <h3>Run arguments</h3>
+    <pre id="runargs"></pre>
+  </div>
+</div>
+
+<div id="app">
+  <nav>
+    <div class="stats" id="stats"></div>
+    <label>Run: <select id="frun"></select></label>
+    <label>Step: <select id="ffile"></select></label>
+    <button id="prevfile" title="Previous file ( [ )">[</button>
+    <button id="nextfile" title="Next file ( ] )">]</button>
+    <label>Outcome: <select id="foutcome">
+      <option value="">All</option>
+      <option value="correct">Correct</option>
+      <option value="wrong">Wrong</option>
+      <option value="unparsed">No answer</option>
+    </select></label>
+    <label>Level: <select id="flevel"><option value="">All</option></select></label>
+    <label>Sort: <select id="fsort">
+      <option value="">Sampled order</option>
+      <option value="long">Longest first</option>
+      <option value="short">Shortest first</option>
+      <option value="nonascii">Most non-ASCII first</option>
+    </select></label>
+    <input type="search" id="search" placeholder="Search completions...">
+    <label><input type="checkbox" id="fws"> Show whitespace</label>
+    <button id="info">?</button>
+    <div class="nav-btns">
+      <button id="prev">&larr;</button>
+      <span id="pageinfo"></span>
+      <button id="next">&rarr;</button>
+    </div>
+  </nav>
+  <div class="container" id="content"></div>
+</div>
+
+<script>
+const RUNS_DIR = '../runs/';
+const HELP = '\n\nRun from the project root:\n  view/sync.sh\nThen open http://localhost:8000/view/';
+const NONASCII = /[^\x00-\x7F]+/g;
+
+let files = [];
+let items = [];
+let filtered = [];
+let idx = 0;
+let searchTimeout = null;
+const collapsed = { prompt: true, reasoning: false, final: false };
+
+const $ = id => document.getElementById(id);
+const params = () => new URLSearchParams(window.location.search);
+
+function setParams(values) {
+  const url = new URL(window.location.href);
+  for (const [k, v] of Object.entries(values)) url.searchParams.set(k, v);
+  history.replaceState(null, '', url);
+}
+
+function fail(message) {
+  $('app').style.display = 'none';
+  $('loading').style.display = 'block';
+  $('loading').style.color = '#a00';
+  $('loading').textContent = message + HELP;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function listing(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+  const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+  return [...doc.querySelectorAll('a')].map(a => decodeURIComponent(a.getAttribute('href')));
+}
+
+function fillSelect($sel, values, selected, label = v => v) {
+  $sel.innerHTML = '';
+  for (const v of values) {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = label(v);
+    if (v === selected) opt.selected = true;
+    $sel.appendChild(opt);
+  }
+}
+
+// "train_00012.jsonl" -> { split: "train", step: 12 }
+function parseFile(name) {
+  const m = name.match(/^(.+)_(\d+)\.jsonl$/);
+  return { split: m[1], step: Number(m[2]) };
+}
+
+function fileLabel(name) {
+  const { split, step } = parseFile(name);
+  return split === 'baseline' ? 'baseline' : `${split} ${step}`;
+}
+
+function outcome(it) {
+  return it.reward > 0 ? 'correct' : it.parsed === null ? 'unparsed' : 'wrong';
+}
+
+function splitCompletion(prompt, text) {
+  const close = text.indexOf('</think>');
+  if (close >= 0) return [text.slice(0, close), text.slice(close)];
+  if (/<think>\s*$/.test(prompt)) return [text, ''];
+  const body = text.replace(/\s+$/, '');
+  const cut = body.lastIndexOf('\n');
+  return cut >= 0 && /Answer:/.test(body.slice(cut)) ? [text.slice(0, cut), text.slice(cut + 1)] : [text, ''];
+}
+
+async function loadRun(run) {
+  setParams({ run });
+  try {
+    const names = (await listing(`${RUNS_DIR}${run}/rollouts/`)).filter(h => h.endsWith('.jsonl'));
+    const order = { baseline: 0, train: 1, eval: 2 };
+    files = names.sort((a, b) => {
+      const x = parseFile(a), y = parseFile(b);
+      return (order[x.split] ?? 3) - (order[y.split] ?? 3) || x.step - y.step;
+    });
+  } catch (err) {
+    return fail(`No rollouts found for run "${run}": ${err.message}`);
+  }
+  if (!files.length) return fail(`Run "${run}" has no rollout files yet.`);
+  fetch(`${RUNS_DIR}${run}/args.json`).then(r => r.ok ? r.text() : 'No args.json for this run.').then(t => { $('runargs').textContent = t; });
+  const requested = params().get('file');
+  const file = files.includes(requested) ? requested : files[0];
+  fillSelect($('ffile'), files, file, fileLabel);
+  loadFile(file);
+}
+
+async function loadFile(file, keepIndex = false) {
+  setParams({ file });
+  $('ffile').value = file;
+  const at = files.indexOf(file);
+  $('prevfile').disabled = at <= 0;
+  $('nextfile').disabled = at >= files.length - 1;
+  let text;
+  try {
+    const r = await fetch(`${RUNS_DIR}${$('frun').value}/rollouts/${file}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    text = await r.text();
+  } catch (err) {
+    return fail(`Could not load ${file}: ${err.message}`);
+  }
+  const groups = new Map();
+  items = text.split('\n').filter(Boolean).map((line, n) => {
+    const it = JSON.parse(line);
+    it.n = n;
+    it.outcome = outcome(it);
+    it.nonascii = (it.completion.match(NONASCII) || []).join('').length;
+    if (!groups.has(it.prompt)) groups.set(it.prompt, []);
+    groups.get(it.prompt).push(it);
+    it.group = groups.get(it.prompt);
+    it.groupId = groups.size;
+    return it;
+  });
+
+  const levels = [...new Set(items.map(i => i.level))].sort((a, b) => a - b);
+  const prevLevel = $('flevel').value;
+  fillSelect($('flevel'), ['', ...levels.map(String)], levels.map(String).includes(prevLevel) ? prevLevel : '', v => v === '' ? 'All' : v);
+
+  $('loading').style.display = 'none';
+  $('app').style.display = 'block';
+  applyFilter(keepIndex);
+}
+
+function pct(part, whole) {
+  return whole ? `${(100 * part / whole).toFixed(1)}%` : 'n/a';
+}
+
+function statsHTML() {
+  const n = items.length;
+  const count = o => items.filter(i => i.outcome === o).length;
+  const levels = [...new Set(items.map(i => i.level))].sort((a, b) => a - b);
+  const mean = Math.round(items.reduce((s, i) => s + i.completion.length, 0) / (n || 1));
+  let html = `${n} completions · ${new Set(items.map(i => i.prompt)).size} prompts` +
+    ` · <span class="good">${pct(count('correct'), n)} correct</span>` +
+    ` · <span class="bad">${pct(count('wrong'), n)} wrong</span>` +
+    ` · <span class="warn">${pct(count('unparsed'), n)} no answer</span>` +
+    ` · mean ${mean} chars`;
+  if (levels.length > 1) {
+    html += ' · correct by level: ' + levels.map(l => {
+      const at = items.filter(i => i.level === l);
+      return `${l}: ${pct(at.filter(i => i.reward > 0).length, at.length)}`;
+    }).join(', ');
+  }
+  return html + ` · showing ${filtered.length}`;
+}
+
+function applyFilter(keepIndex = false) {
+  const want = $('foutcome').value, level = $('flevel').value, sort = $('fsort').value;
+  const q = $('search').value.toLowerCase();
+  const current = filtered[idx];
+  filtered = items.filter(it =>
+    (!want || it.outcome === want) &&
+    (level === '' || String(it.level) === level) &&
+    (!q || it.completion.toLowerCase().includes(q)));
+  if (sort === 'long') filtered.sort((a, b) => b.completion.length - a.completion.length);
+  if (sort === 'short') filtered.sort((a, b) => a.completion.length - b.completion.length);
+  if (sort === 'nonascii') filtered.sort((a, b) => b.nonascii - a.nonascii);
+  const requested = Number(params().get('i'));
+  const keep = keepIndex && current ? filtered.findIndex(it => it.n === current.n) : filtered.findIndex(it => it.n === requested);
+  idx = Math.max(keep, 0);
+  render();
+}
+
+function highlight(text) {
+  const q = $('search').value;
+  let html = esc(text).replace(NONASCII, m => `<span class="nonascii">${m}</span>`);
+  if ($('fws').checked) html = html.replace(/\n/g, '<span class="ws">↵</span>\n').replace(/ {2,}/g, m => `<span class="ws">${'·'.repeat(m.length)}</span>`);
+  if (q) {
+    const pattern = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    html = html.replace(/(<[^>]+>)|([^<]+)/g, (m, tag, txt) => tag || txt.replace(pattern, h => `<mark class="hit">${h}</mark>`));
+  }
+  return html;
+}
+
+function block(kind, title, text) {
+  return `<div class="msg ${kind}${collapsed[kind] ? ' collapsed' : ''}">` +
+    `<div class="msg-header" data-kind="${kind}"><span>${title}</span><span class="toggle"></span></div>` +
+    `<div class="msg-body"><pre>${highlight(text)}</pre></div></div>`;
+}
+
+function render() {
+  $('stats').innerHTML = statsHTML();
+  $('prev').disabled = idx <= 0;
+  $('next').disabled = idx >= filtered.length - 1;
+  if (!filtered.length) {
+    $('content').innerHTML = '<div class="empty">No completions match the filters.</div>';
+    $('pageinfo').textContent = '0 of 0';
+    return;
+  }
+  const it = filtered[idx];
+  setParams({ i: it.n });
+  $('pageinfo').textContent = `${idx + 1} of ${filtered.length}`;
+  const [reasoning, final] = splitCompletion(it.prompt, it.completion);
+  const { split, step } = parseFile($('ffile').value);
+  const names = { correct: 'Correct', wrong: 'Wrong', unparsed: 'No answer' };
+  const shown = new Set(filtered.map(f => f.n));
+
+  const chips = it.group.map((g, k) =>
+    `<button class="chip ${g.outcome}${g === it ? ' current' : ''}${shown.has(g.n) ? '' : ' hidden-by-filter'}" data-n="${g.n}" title="${names[g.outcome]}, ${g.completion.length} chars">${k + 1}</button>`).join('');
+  const solved = it.group.filter(g => g.reward > 0).length;
+
+  $('content').innerHTML =
+    `<div class="meta-panel"><span class="badge ${it.outcome}">${names[it.outcome]}</span>` +
+    `<span class="badge tag">${esc(split)}${split === 'baseline' ? '' : ' step ' + step}</span>` +
+    `<span class="badge tag">level ${esc(it.level)}</span></div>` +
+    `<dl class="meta-grid">` +
+    `<div><dt>Expected</dt><dd>${esc(it.answer)}</dd></div>` +
+    `<div><dt>Parsed answer</dt><dd>${it.parsed === null ? '<span class="warn">none</span>' : esc(it.parsed)}</dd></div>` +
+    `<div><dt>Reward</dt><dd>${it.reward}</dd></div>` +
+    `<div><dt>Length</dt><dd>${it.completion.length} chars</dd></div>` +
+    `<div><dt>Non-ASCII</dt><dd>${it.nonascii} chars</dd></div>` +
+    `<div><dt>Group</dt><dd>prompt ${it.groupId}, ${solved} of ${it.group.length} correct</dd></div>` +
+    `</dl>` +
+    `<div class="group">Group: ${chips}</div>` +
+    block('prompt', 'Prompt', it.prompt) +
+    block('reasoning', 'Reasoning', reasoning) +
+    (final ? block('final', 'Answer', final) : '');
+}
+
+function go(delta) {
+  const next = idx + delta;
+  if (next >= 0 && next < filtered.length) { idx = next; render(); window.scrollTo(0, 0); }
+}
+
+function goFile(delta) {
+  const next = files.indexOf($('ffile').value) + delta;
+  if (next >= 0 && next < files.length) loadFile(files[next], true);
+}
+
+function jumpTo(n) {
+  let at = filtered.findIndex(f => f.n === n);
+  if (at < 0) {
+    $('foutcome').value = ''; $('flevel').value = ''; $('search').value = '';
+    applyFilter();
+    at = filtered.findIndex(f => f.n === n);
+  }
+  idx = at; render();
+}
+
+function toggleSidebar() {
+  $('sidebar').classList.toggle('open');
+  $('overlay').classList.toggle('open');
+}
+
+$('frun').addEventListener('change', () => { setParams({ file: '', i: 0 }); loadRun($('frun').value); });
+$('ffile').addEventListener('change', () => loadFile($('ffile').value, true));
+for (const id of ['foutcome', 'flevel', 'fsort']) $(id).addEventListener('change', () => applyFilter(true));
+$('fws').addEventListener('change', render);
+$('search').addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => applyFilter(true), 300); });
+$('prev').addEventListener('click', () => go(-1));
+$('next').addEventListener('click', () => go(1));
+$('prevfile').addEventListener('click', () => goFile(-1));
+$('nextfile').addEventListener('click', () => goFile(1));
+$('info').addEventListener('click', toggleSidebar);
+$('close').addEventListener('click', toggleSidebar);
+$('overlay').addEventListener('click', toggleSidebar);
+$('content').addEventListener('click', e => {
+  const header = e.target.closest('.msg-header');
+  if (header) { collapsed[header.dataset.kind] = !collapsed[header.dataset.kind]; render(); }
+  const chip = e.target.closest('.chip');
+  if (chip) jumpTo(Number(chip.dataset.n));
+});
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.metaKey || e.ctrlKey) return;
+  if (e.key === 'Escape' && $('sidebar').classList.contains('open')) toggleSidebar();
+  if (e.key === 'ArrowLeft' || e.key === 'j') go(-1);
+  if (e.key === 'ArrowRight' || e.key === 'k') go(1);
+  if (e.key === '[') goFile(-1);
+  if (e.key === ']') goFile(1);
+  if (e.key === 'g' && filtered.length) {
+    const group = filtered[idx].group;
+    jumpTo(group[(group.indexOf(filtered[idx]) + 1) % group.length].n);
+  }
+});
+
+(async () => {
+  let runs;
+  try {
+    runs = (await listing(RUNS_DIR)).filter(h => h.endsWith('/') && !h.startsWith('.') && !h.startsWith('/')).map(h => h.slice(0, -1)).sort();
+  } catch (err) {
+    return fail(`Could not list ${RUNS_DIR}: ${err.message}`);
+  }
+  if (!runs.length) return fail(`No runs found in ${RUNS_DIR}.`);
+  const requested = params().get('run');
+  const run = runs.includes(requested) ? requested : runs[0];
+  fillSelect($('frun'), runs, run);
+  loadRun(run);
+})();
+</script>
+</body>
+</html>

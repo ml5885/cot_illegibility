@@ -5,22 +5,16 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from rollouts import score_and_save
 from tasks import FORMATS, Format, dataset
 
 
-def logged_reward(path: Path, fmt: Format, state: Callable[[], tuple[int, str]]):
-    """Reward on the final answer only; every sampled completion is appended to `path`."""
+def logged_reward(directory: Path, fmt: Format, state: Callable[[], tuple[int, str]]):
+    """Reward on the final answer only. `state` returns the current (step, split)."""
 
     def correct(prompts, completions, answer, level, **kwargs):
-        rewards = [fmt.reward(c, a) for c, a in zip(completions, answer)]
         step, split = state()
-        with open(path, "a") as f:
-            for row in zip(prompts, completions, answer, level, rewards):
-                f.write(json.dumps(dict(zip(
-                    ["step", "split", "prompt", "completion", "answer", "level", "reward"],
-                    [step, split, *row],
-                ))) + "\n")
-        return rewards
+        return score_and_save(directory, fmt, split, step, prompts, completions, answer, level)
 
     return correct
 
@@ -99,7 +93,7 @@ def main():
     trainer = GRPOTrainer(
         model=args.model,
         reward_funcs=logged_reward(
-            out / "rollouts.jsonl",
+            out / "rollouts",
             fmt,
             lambda: (trainer.state.global_step, "train" if trainer.model.training else "eval"),
         ),

@@ -6,26 +6,31 @@ from tasks import PLAIN, TAGS
 from train import grpo_config, logged_reward, parse_args
 
 
+def read(path):
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
 def test_logged_reward_scores_and_records_every_completion(tmp_path):
-    path = tmp_path / "rollouts.jsonl"
     state = [(3, "train")]
-    correct = logged_reward(path, TAGS, lambda: state[0])
+    correct = logged_reward(tmp_path, TAGS, lambda: state[0])
     assert correct.__name__ == "correct"
 
     kwargs = dict(prompts=["p1", "p1", "p2"], answer=["C", "C", "34"], level=[4, 4, 0], completion_ids=[[1], [2], [3]])
     assert correct(completions=["x</think><answer>C</answer>", "x</think><answer>D</answer>", "junk"], **kwargs) == [1.0, 0.0, 0.0]
+    assert correct(completions=["junk", "junk", "junk"], **kwargs) == [0.0, 0.0, 0.0]
 
     state[0] = (4, "eval")
     assert correct(completions=["x", "x", "</think> <answer>34</answer>"], **kwargs) == [0.0, 0.0, 1.0]
 
-    rows = [json.loads(line) for line in path.read_text().splitlines()]
-    assert len(rows) == 6
-    assert rows[0] == {
-        "step": 3, "split": "train", "prompt": "p1", "completion": "x</think><answer>C</answer>",
-        "answer": "C", "level": 4, "reward": 1.0,
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["eval_00004.jsonl", "train_00003.jsonl"]
+    train, evaluation = read(tmp_path / "train_00003.jsonl"), read(tmp_path / "eval_00004.jsonl")
+    assert len(train) == 6 and len(evaluation) == 3
+    assert train[0] == {
+        "prompt": "p1", "completion": "x</think><answer>C</answer>",
+        "answer": "C", "parsed": "C", "level": 4, "reward": 1.0,
     }
-    assert [r["split"] for r in rows] == ["train"] * 3 + ["eval"] * 3
-    assert rows[5]["reward"] == 1.0 and rows[5]["step"] == 4
+    assert [r["parsed"] for r in train[:3]] == ["C", "D", None]
+    assert evaluation[2]["reward"] == 1.0 and evaluation[2]["parsed"] == "34"
 
 
 def config(*argv):
@@ -48,9 +53,9 @@ def test_plain_format_changes_only_the_stop_string():
 def test_logged_reward_uses_the_given_format(tmp_path):
     kwargs = dict(prompts=["p"], answer=["C"], level=[1])
     completions = ["x</think><answer>C</answer>"]
-    assert logged_reward(tmp_path / "a", TAGS, lambda: (0, "train"))(completions=completions, **kwargs) == [1.0]
-    assert logged_reward(tmp_path / "b", PLAIN, lambda: (0, "train"))(completions=completions, **kwargs) == [0.0]
-    assert logged_reward(tmp_path / "c", PLAIN, lambda: (0, "train"))(completions=["x\nAnswer: C"], **kwargs) == [1.0]
+    assert logged_reward(tmp_path, TAGS, lambda: (0, "train"))(completions=completions, **kwargs) == [1.0]
+    assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"))(completions=completions, **kwargs) == [0.0]
+    assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"))(completions=["x\nAnswer: C"], **kwargs) == [1.0]
     assert c.use_vllm and c.vllm_mode == "colocate"
 
 

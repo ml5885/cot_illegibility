@@ -1,12 +1,14 @@
-"""Base-model pass@1 / pass@k on a task, with per-problem results for difficulty filtering."""
+"""Base-model pass@1 / pass@k on a task, per difficulty level."""
 
 import argparse
 import json
 import os
+import shutil
 import time
 from collections import defaultdict
 from pathlib import Path
 
+from rollouts import score_and_save
 from tasks import FORMATS, dataset
 
 # The system nvcc is too old to JIT-compile FlashInfer's sampler.
@@ -24,33 +26,40 @@ parser.add_argument("--k", type=int, default=64)
 parser.add_argument("--max-tokens", type=int, default=512)
 parser.add_argument("--temperature", type=float, default=1.0)
 parser.add_argument("--seed", type=int, default=0)
-parser.add_argument("--out", type=Path, default=Path("runs/baseline"))
 args = parser.parse_args()
 
 fmt = FORMATS[args.format]
 problems = dataset(args.task, args.split, args.seed, args.problems, args.swaps, fmt)
+out = Path("runs") / f"baseline-{args.task}-{args.format}-{args.model.split('/')[-1]}"
+shutil.rmtree(out, ignore_errors=True)
+out.mkdir(parents=True)
+(out / "args.json").write_text(json.dumps(vars(args), indent=2))
 
 llm = LLM(args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed)
 sampling = SamplingParams(
-    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=[fmt.stop], include_stop_str_in_output=True
+    n=args.k,
+    temperature=args.temperature,
+    max_tokens=args.max_tokens,
+    stop=[fmt.stop],
+    include_stop_str_in_output=True,
 )
 start = time.time()
 outputs = llm.generate(problems["prompt"], sampling)
 elapsed = time.time() - start
 
 levels = defaultdict(lambda: defaultdict(float))
-args.out.mkdir(parents=True, exist_ok=True)
-with open(args.out / f"{args.task}_{args.format}_{args.model.split('/')[-1]}.jsonl", "w") as f:
-    for problem, output in zip(problems, outputs):
-        completions = [c.text for c in output.outputs]
-        n_correct = sum(fmt.reward(c, problem["answer"]) for c in completions)
-        stats = levels[problem["level"]]
-        stats["problems"] += 1
-        stats["correct"] += n_correct
-        stats["solved"] += n_correct > 0
-        stats["parsed"] += sum(fmt.parse_answer(c) is not None for c in completions)
-        stats["tokens"] += sum(len(c.token_ids) for c in output.outputs)
-        f.write(json.dumps({**problem, "n_correct": n_correct, "completions": completions}) + "\n")
+for problem, output in zip(problems, outputs):
+    completions = [c.text for c in output.outputs]
+    rewards = score_and_save(
+        out / "rollouts", fmt, "baseline", 0,
+        [problem["prompt"]] * args.k, completions, [problem["answer"]] * args.k, [problem["level"]] * args.k,
+    )
+    stats = levels[problem["level"]]
+    stats["problems"] += 1
+    stats["correct"] += sum(rewards)
+    stats["solved"] += any(rewards)
+    stats["parsed"] += sum(fmt.parse_answer(c) is not None for c in completions)
+    stats["tokens"] += sum(len(c.token_ids) for c in output.outputs)
 
 for level, s in sorted(levels.items()):
     samples = s["problems"] * args.k
