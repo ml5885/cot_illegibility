@@ -7,6 +7,7 @@ uv run --with matplotlib plots.py --newlines RUN                  share of compl
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
+uv run --with matplotlib plots.py --whitespace RUN                kinds of whitespace in completions
 """
 
 import json
@@ -278,6 +279,36 @@ def plot_token_limit(run: str):
     fig.savefig(f"figures/{run}-token-limit.png", dpi=150)
 
 
+def plot_whitespace(run: str):
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    pooled = defaultdict(list)
+    for by_step in rows.values():
+        for step, step_rows in by_step.items():
+            pooled[step] += [row["completion"] for row in step_rows if row["completion"]]
+    has = lambda pattern: lambda text: float(re.search(pattern, text) is not None)
+    panels = [
+        ("Completions containing", "{x:.0%}", [
+            ("A newline", has(r"\n")), ("A blank line", has(r"\n\n")), ("Two spaces in a row", has("  ")), ("A tab", has(r"\t")),
+        ]),
+        ("Newlines per completion", "{x:.0f}", [(None, lambda text: text.count("\n"))]),
+        ("Whitespace as a share of characters", "{x:.0%}", [(None, lambda text: sum(map(str.isspace, text)) / len(text))]),
+    ]
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
+    for ax, (title, tick_format, series) in zip(axes, panels):
+        for (name, metric), color in zip(series, [c for _, c in OUTCOMES] + ["#eda100"]):
+            ax.plot(*smoothed(pooled, metric), color=color, label=name, linewidth=2)
+        ax.set_title(title)
+        ax.set_xlabel("Training step")
+        ax.set_ylim(0)
+        ax.yaxis.set_major_formatter(tick_format)
+    axes[0].legend(loc="upper right")
+    axes[2].set_ylim(0, 0.3)
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-whitespace.png", dpi=150)
+
+
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -319,7 +350,10 @@ if __name__ == "__main__":
     if sys.argv[1] in BY_OUTCOME:
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
-    OTHER = {"--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit}
+    OTHER = {
+        "--length-signal": plot_length_signal, "--correlation": plot_correlation,
+        "--token-limit": plot_token_limit, "--whitespace": plot_whitespace,
+    }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
         sys.exit()
