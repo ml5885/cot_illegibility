@@ -140,7 +140,7 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
         top.set_yticks([0, 1], ["0%", "100%"] if i % 2 == 0 else ["", ""])
         top.spines["left"].set_visible(False)
         top.tick_params(length=0)
-        ax.sharey(panels[i - i % 2])
+        ax.sharey(panels[0])
         ax.tick_params(labelbottom=True, labelleft=i % 2 == 0)
         ax.grid(axis="y", color="0.9", linewidth=0.8)
         ax.set_axisbelow(True)
@@ -149,9 +149,8 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
             ax.set_ylabel(label)
     for ax in panels[-2:]:
         ax.set_xlabel("Training step")
-    for left, right in zip(panels[::2], panels[1::2]):
-        left.set_ylim(0, 1.05 * max(left.dataLim.y1, right.dataLim.y1))
-        left.yaxis.set_major_formatter(tick_format)
+    panels[0].set_ylim(0, 1.05 * max(ax.dataLim.y1 for ax in panels))
+    panels[0].yaxis.set_major_formatter(tick_format)
     fig.legend(*panels[0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
     fig.suptitle(f"{model}: {title}")
     Path("figures").mkdir(exist_ok=True)
@@ -159,17 +158,20 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
 
 
 def gaps(rows: list[dict], metric) -> list[float]:
-    """Correct minus incorrect mean of the metric, for each puzzle whose samples were not all scored alike."""
+    """Incorrect minus correct mean of the metric, for each puzzle whose samples were not all scored alike."""
     puzzles = defaultdict(lambda: ([], []))
     for row in rows:
         puzzles[row["prompt"]][int(row["reward"])].append(metric(row))
-    return [sum(right) / len(right) - sum(wrong) / len(wrong) for wrong, right in puzzles.values() if wrong and right]
+    return [sum(wrong) / len(wrong) - sum(right) / len(right) for wrong, right in puzzles.values() if wrong and right]
 
 
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    margins = [(length, "Length in characters, correct minus incorrect"), (newline, "Newline use, correct minus incorrect")]
+    margins = [
+        (length, "How much longer incorrect responses are (characters)"),
+        (newline, "How much more often incorrect responses use a newline"),
+    ]
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
         starts = range(0, max(rows[level]) + 1, BIN)
