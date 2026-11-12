@@ -2,6 +2,7 @@
 
 uv run --with matplotlib plots.py [--start-box] RUN [RUN ...]   training curves per run
 uv run --with matplotlib plots.py --formats MODEL                 base model, think tags vs plain format
+uv run --with matplotlib plots.py --lengths RUN                   completion length by outcome, per level
 """
 
 import json
@@ -15,6 +16,8 @@ import matplotlib.pyplot as plt
 plt.rcParams["font.family"] = "serif"
 
 WINDOW = 5
+BIN, MIN_SAMPLES = 20, 5
+OUTCOMES = [("Correct", "#2a78d6"), ("Wrong answer", "#eb6834"), ("No valid answer", "#1baf7a")]
 START = re.compile(r"A key is in box (\w)\.")
 
 
@@ -77,6 +80,37 @@ def plot(run: str, start_box: bool):
     fig.savefig(f"figures/{run}.png", dpi=150)
 
 
+def outcome(row: dict) -> str:
+    return "Correct" if row["reward"] else "Wrong answer" if row["parsed"] is not None else "No valid answer"
+
+
+def plot_lengths(run: str):
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    fig, axes = plt.subplots(1, len(rows), figsize=(4 * len(rows), 4))
+    for ax, level in zip(axes, sorted(rows)):
+        for name, color in OUTCOMES:
+            starts = range(0, max(rows[level]) + 1, BIN)
+            bins = [
+                [length(r) for step in range(start, start + BIN) for r in rows[level].get(step, []) if outcome(r) == name]
+                for start in starts
+            ]
+            means = [sum(b) / len(b) if len(b) >= MIN_SAMPLES else float("nan") for b in bins]
+            ax.plot([s + BIN / 2 for s in starts], means, "o-", color=color, label=name)
+        ax.set_title(f"{level} swaps")
+        ax.set_xlabel("Training step")
+        ax.set_ylim(0)
+    axes[0].set_ylabel("Completion length (characters)")
+    axes[0].legend(loc="lower right")
+    fig.suptitle(
+        f"{model} on the box-swap task: completion length by outcome. "
+        f"Training samples, {BIN}-step bins; bins under {MIN_SAMPLES} samples omitted."
+    )
+    fig.tight_layout()
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-lengths.png", dpi=150)
+
+
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -114,6 +148,9 @@ def plot_formats(model: str):
 if __name__ == "__main__":
     if sys.argv[1] == "--formats":
         plot_formats(sys.argv[2])
+        sys.exit()
+    if sys.argv[1] == "--lengths":
+        plot_lengths(sys.argv[2])
         sys.exit()
     runs = [arg for arg in sys.argv[1:] if arg != "--start-box"]
     for run in runs:
