@@ -368,25 +368,46 @@ def trace_parts(row: dict, count) -> dict:
     }
 
 
+# Real sentences to show beside the standalone-statement panel: run -> (swap count, training step, text).
+EXAMPLES = {
+    "swaps-7b-tags-v2": [
+        (4, 100, 'Step 100, with a standalone statement:\n"The key, being in box D, will move\nto box A. So now, the key is in box A."'),
+        (4, 187, 'Step 187, without one:\n"The key, in E, is unaffected."'),
+    ],
+}
+
+
 def plot_tracking(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    width = 5
+    width, examples = 5, EXAMPLES.get(run, [])
     panels = [("Swaps followed by the right key location", right_share), ("Swaps followed by a standalone location statement", standalone_share)]
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), sharey=True, layout="constrained")
+    fig, axes = plt.subplots(
+        1, 3 if examples else 2, figsize=(15.5 if examples else 11, 4.4), layout="constrained",
+        width_ratios=[1, 1, 0.8] if examples else [1, 1],
+    )
+    binned = {}
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
         bins = defaultdict(list)
         for step, step_rows in rows[level].items():
             bins[step // width * width] += step_rows
-        bins = dict(sorted(bins.items()))
+        binned[level] = dict(sorted(bins.items()))
         for ax, (_, metric) in zip(axes, panels):
-            ax.plot([s + width / 2 for s in bins], [metric(rs) for rs in bins.values()], color=color, label=f"{level} swaps")
+            ax.plot([s + width / 2 for s in binned[level]], [metric(rs) for rs in binned[level].values()], color=color, label=f"{level} swaps")
     for ax, (title, _) in zip(axes, panels):
         ax.set_title(title)
         ax.set_xlabel("Training step")
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_ylim(0, 1.03)
-    axes[1].legend(loc="best")
+    axes[0].legend(loc="lower right")
+    for (level, step, text), height in zip(examples, [0.72, 0.28]):
+        start = step // width * width
+        axes[2].axis("off")
+        axes[1].annotate(
+            text, xy=(start + width / 2, standalone_share(binned[level][start])), xytext=(0.0, height), textcoords=axes[2].transAxes,
+            va="center", fontsize=10.5, bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": "0.4"},
+            arrowprops={"arrowstyle": "->", "color": "0.25"}, annotation_clip=False,
+        ).set_in_layout(False)
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-tracking.png", dpi=150)
