@@ -109,14 +109,15 @@ def newline(row: dict) -> float:
 
 
 BY_OUTCOME = {
-    "--lengths": (length, "Length (characters)", "completion length by outcome", "{x:,.0f}", "lengths"),
-    "--newlines": (newline, "With a newline", "completions with a newline, by outcome", "{x:.0%}", "newlines"),
+    "--lengths": (lambda row: row["tokens"], "Length (tokens)", "completion length by outcome", "{x:,.0f}", "lengths", True),
+    "--newlines": (newline, "With a newline", "completions with a newline, by outcome", "{x:.0%}", "newlines", False),
 }
 
 
-def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, suffix: str):
+def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, suffix: str, token_limit: bool):
     rows = load(run)["train"]
-    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    args = json.loads(Path("runs", run, "args.json").read_text())
+    model = args["model"].split("/")[-1]
     grid_rows = (len(rows) + 1) // 2
     fig, axes = plt.subplots(
         2 * grid_rows, 2, figsize=(10, 4.4 * grid_rows), sharex=True, height_ratios=[1, 3] * grid_rows, layout="constrained"
@@ -140,6 +141,8 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
         top.set_yticks([0, 1], ["0%", "100%"] if i % 2 == 0 else ["", ""])
         top.spines["left"].set_visible(False)
         top.tick_params(length=0)
+        if token_limit:
+            ax.axhline(args["max_tokens"], color="black", linestyle=":", linewidth=1.5, label="Token limit")
         ax.sharey(panels[0])
         ax.tick_params(labelbottom=True, labelleft=i % 2 == 0)
         ax.grid(axis="y", color="0.9", linewidth=0.8)
@@ -149,9 +152,9 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
             ax.set_ylabel(label)
     for ax in panels[-2:]:
         ax.set_xlabel("Training step")
-    panels[0].set_ylim(0, 1.05 * max(ax.dataLim.y1 for ax in panels))
+    panels[0].set_ylim(0, 1.05 * max([ax.dataLim.y1 for ax in panels] + [args["max_tokens"]] * token_limit))
     panels[0].yaxis.set_major_formatter(tick_format)
-    fig.legend(*panels[0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
+    fig.legend(*panels[0].get_legend_handles_labels(), loc="outside lower center", ncol=4)
     fig.suptitle(f"{model}: {title}")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-{suffix}.png", dpi=150)
