@@ -11,6 +11,7 @@ uv run --with matplotlib --with transformers plots.py --traces RUN   what correc
 uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and standalone location statements, by swap count
 uv run --with matplotlib plots.py --coverage RUN                  how many of a puzzle's swaps the reasoning writes out
 uv run --with matplotlib plots.py --train-eval RUN                newline use on training and held-out puzzles
+uv run --with matplotlib plots.py --templates RUN                 share of responses containing each common sentence template
 uv run --with matplotlib plots.py --okay RUN                      responses that open with "Okay"
 uv run --with matplotlib plots.py --errors RUN                    what went wrong in the responses that scored 0
 uv run --with matplotlib plots.py --error-shares RUN              the same, as a share of the wrong responses
@@ -19,6 +20,7 @@ uv run --with matplotlib plots.py --error-shares RUN              the same, as a
 import json
 import re
 import sys
+import textwrap
 from collections import defaultdict
 from pathlib import Path
 
@@ -457,6 +459,59 @@ def plot_train_eval(run: str):
     fig.savefig(f"figures/{run}-train-eval.png", dpi=150)
 
 
+def sentence_templates(row: dict) -> set[str]:
+    """Sentences of the reasoning with whitespace collapsed, box letters as X and numbers as N. A sentence ends
+    at a period followed by a space, except after a list marker such as "3."."""
+    text = " ".join(row["completion"].partition("</think>")[0].split())
+    text = re.sub(r"\d+", "N", re.sub(r"\b[A-F]\b", "X", text))
+    return {sentence.strip() for sentence in re.split(r"(?<=[^N]\.)\s+", text) if sentence.strip()}
+
+
+def common_templates(run: str, width: int, floor: float = 0.1) -> tuple[list[str], dict[int, dict[str, float]]]:
+    """Templates in at least `floor` of the responses of some 20-step window, ordered by when they peak, and
+    the share of responses containing each template in every `width`-step window."""
+    counts, sizes = defaultdict(lambda: defaultdict(int)), defaultdict(int)
+    for by_step in load(run)["train"].values():
+        for step, rows in by_step.items():
+            for row in rows:
+                sizes[step] += 1
+                for template in sentence_templates(row):
+                    counts[step][template] += 1
+    def shares(size: int) -> dict[int, dict[str, float]]:
+        totals, n = defaultdict(lambda: defaultdict(int)), defaultdict(int)
+        for step in counts:
+            n[step // size * size] += sizes[step]
+            for template, count in counts[step].items():
+                totals[step // size * size][template] += count
+        return {start: {t: c / n[start] for t, c in totals[start].items()} for start in sorted(totals)}
+    coarse = shares(BIN)
+    kept = {t for window in coarse.values() for t, share in window.items() if share >= floor}
+    peak = lambda t: max(coarse, key=lambda start: coarse[start].get(t, 0))
+    order = sorted(kept, key=lambda t: (peak(t), -coarse[peak(t)][t]))
+    return order, shares(width)
+
+
+def plot_templates(run: str):
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    width = 10
+    order, shares = common_templates(run, width)
+    columns = 3
+    rows = -(-len(order) // columns)
+    fig, axes = plt.subplots(rows, columns, figsize=(15, 2.5 * rows), sharex=True, sharey=True, layout="constrained")
+    for ax, template in zip(axes.flatten(), order):
+        ax.plot([start + width / 2 for start in shares], [shares[start].get(template, 0) for start in shares], color=PALETTE[0], linewidth=2)
+        ax.set_title("\n".join(textwrap.wrap(template, 52)), fontsize=10)
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 1.03)
+    for ax in axes.flatten()[len(order) :]:
+        ax.axis("off")
+    fig.supxlabel("Training step", fontsize=13)
+    fig.supylabel("Responses containing the sentence", fontsize=13)
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-templates.png", dpi=130)
+
+
 def opens_with_okay(row: dict) -> float:
     return float(row["completion"].lstrip().startswith("Okay"))
 
@@ -592,7 +647,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
-        "--okay": plot_okay, "--train-eval": plot_train_eval, "--errors": plot_errors, "--error-shares": lambda run: plot_errors(run, of_wrong=True),
+        "--okay": plot_okay, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors, "--error-shares": lambda run: plot_errors(run, of_wrong=True),
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
