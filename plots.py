@@ -7,7 +7,6 @@ uv run --with matplotlib plots.py --newlines RUN                  share of compl
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
-uv run --with matplotlib plots.py --blank-lines RUN               where the first blank line falls; reward vs a lenient parser
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
 uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and standalone location statements, by swap count
 uv run --with matplotlib plots.py --coverage RUN                  how many of a puzzle's swaps the reasoning writes out
@@ -283,59 +282,6 @@ def plot_token_limit(run: str):
 
 
 PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
-LOCATIONS = [
-    "Right after <think>", "After the opening sentence", "Between swap steps",
-    "Just before </think>", "Between the tags", "Inside the answer",
-]
-
-
-def blank_line_location(row: dict) -> str | None:
-    text = row["completion"]
-    at, think, answer = text.find("\n\n"), text.find("</think>"), text.find("<answer>")
-    if at < 0:
-        return None
-    if not text[:at].strip():
-        return LOCATIONS[0]
-    if think < 0 or at < think:
-        if think >= 0 and not text[at:think].strip():
-            return LOCATIONS[3]
-        return LOCATIONS[2] if PAIR.search(text[:at]) else LOCATIONS[1]
-    return LOCATIONS[4] if answer < 0 or at < answer else LOCATIONS[5]
-
-
-def lenient_correct(row: dict) -> float:
-    """Right letter in the last answer tag, whatever the whitespace, closing tags or wording around it."""
-    answer = row["completion"].rpartition("<answer>")
-    letters = set(re.findall(r"\b[A-F]\b", answer[2].split("</answer>")[0]))
-    return float(bool(answer[1]) and letters == {row["answer"]})
-
-
-def plot_blank_lines(run: str):
-    rows = load(run)["train"]
-    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    pooled = defaultdict(list)
-    for by_step in rows.values():
-        for step, step_rows in by_step.items():
-            pooled[step] += step_rows
-    fig, (where, scores) = plt.subplots(1, 2, figsize=(11, 4.4), layout="constrained")
-    shares = [smoothed(pooled, lambda row, name=name: float(blank_line_location(row) == name)) for name in LOCATIONS]
-    where.stackplot(shares[0][0], [share for _, share in shares], labels=LOCATIONS, colors=PALETTE)
-    where.set_title("Where the first blank line falls")
-    where.yaxis.set_major_formatter("{x:.0%}")
-    where.legend(loc="upper right", fontsize=10)
-    scores.plot(*smoothed(pooled, accuracy), color=PALETTE[0], linewidth=2, label="Rewarded")
-    scores.plot(*smoothed(pooled, lenient_correct), color=PALETTE[1], linewidth=2, linestyle="--", label="Correct under a lenient parser")
-    scores.set_title("Reward against a lenient parser")
-    scores.yaxis.set_major_formatter("{x:.0%}")
-    scores.legend(loc="lower right")
-    for ax in (where, scores):
-        ax.set_xlabel("Training step")
-        ax.set_ylim(0, 1.03)
-    fig.suptitle(model)
-    Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-blank-lines.png", dpi=150)
-
-
 CONCLUSION = re.compile(r"Therefore|Thus|So,? after|After all|After these|In conclusion|Finally,|Hence|At the end|After performing|After completing")
 PARTS = ["Opening", "Swaps that move the key", "Swaps that leave it", "Conclusion", "Closing tag and answer"]
 
@@ -645,7 +591,7 @@ if __name__ == "__main__":
         sys.exit()
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
-        "--blank-lines": plot_blank_lines, "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
+        "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
         "--okay": plot_okay, "--train-eval": plot_train_eval, "--errors": plot_errors, "--error-shares": lambda run: plot_errors(run, of_wrong=True),
     }
     if sys.argv[1] in OTHER:
