@@ -570,19 +570,21 @@ def plot_errors(run: str):
     data = load(run)
     args = json.loads(Path("runs", run, "args.json").read_text())
     levels = sorted(data["train"] | data["eval"])
+    evaluated = sorted(next(iter(data["eval"].values())))
+    width = evaluated[1] - evaluated[0]
     fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey=True, layout="constrained")
     for ax, level in zip(axes.flatten(), levels):
         trained = level in data["train"]
         bins = defaultdict(list)
         for step, rows in data["train" if trained else "eval"][level].items():
-            bins[step // BIN * BIN + BIN / 2 if trained else step] += rows
+            bins[(step // width + 1) * width if trained else step] += rows
         bins = dict(sorted(bins.items()))
         causes = [[error_cause(r, args["max_tokens"]) for r in rs if not r["reward"]] for rs in bins.values()]
         floor = [0.0] * len(bins)
         shown = [len(c) >= MIN_SAMPLES for c in causes]
         for name, color in ERRORS:
             share = [c.count(name) / len(c) if ok else 0 for c, ok in zip(causes, shown)]
-            ax.bar(list(bins), share, (BIN if trained else 10) - 3, bottom=floor, color=color, label=name)
+            ax.bar(list(bins), share, 0.8 * width, bottom=floor, color=color, label=name)
             floor = [f + v for f, v in zip(floor, share)]
         for x, c, ok in zip(bins, causes, shown):
             if ok:
