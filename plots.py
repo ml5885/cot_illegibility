@@ -3,6 +3,7 @@
 uv run --with matplotlib plots.py [--start-box] RUN [RUN ...]   training curves per run
 uv run --with matplotlib plots.py --formats MODEL                 base model, think tags vs plain format
 uv run --with matplotlib plots.py --lengths RUN                   completion length by outcome, per level
+uv run --with matplotlib plots.py --newlines RUN                  share of completions with a newline, by outcome
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 """
 
@@ -97,7 +98,17 @@ def outcome(row: dict) -> str:
     return "Correct" if row["reward"] else "Wrong answer" if row["parsed"] is not None else "No valid answer"
 
 
-def plot_lengths(run: str):
+def newline(row: dict) -> float:
+    return float("\n" in row["completion"])
+
+
+BY_OUTCOME = {
+    "--lengths": (length, "Length (characters)", "completion length by outcome", "{x:,.0f}", "lengths"),
+    "--newlines": (newline, "With a newline", "completions with a newline, by outcome", "{x:.0%}", "newlines"),
+}
+
+
+def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, suffix: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     grid_rows = (len(rows) + 1) // 2
@@ -112,7 +123,7 @@ def plot_lengths(run: str):
         bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
         floor = [0.0] * len(bins)
         for name, color in OUTCOMES:
-            lengths = [[length(r) for r in b if outcome(r) == name] for b in bins]
+            lengths = [[metric(r) for r in b if outcome(r) == name] for b in bins]
             share = [len(v) / len(b) for v, b in zip(lengths, bins)]
             top.bar(centers, share, BIN - 3, bottom=floor, color=color)
             floor = [f + s for f, s in zip(floor, share)]
@@ -129,16 +140,16 @@ def plot_lengths(run: str):
         ax.set_axisbelow(True)
         if i % 2 == 0:
             top.set_ylabel("Share")
-            ax.set_ylabel("Length (characters)")
+            ax.set_ylabel(label)
     for ax in panels[-2:]:
         ax.set_xlabel("Training step")
     for left, right in zip(panels[::2], panels[1::2]):
         left.set_ylim(0, 1.05 * max(left.dataLim.y1, right.dataLim.y1))
-        left.yaxis.set_major_formatter("{x:,.0f}")
+        left.yaxis.set_major_formatter(tick_format)
     fig.legend(*panels[0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
-    fig.suptitle(f"{model}: completion length by outcome")
+    fig.suptitle(f"{model}: {title}")
     Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-lengths.png", dpi=150)
+    fig.savefig(f"figures/{run}-{suffix}.png", dpi=150)
 
 
 def length_gaps(rows: list[dict]) -> list[float]:
@@ -153,7 +164,7 @@ def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     shares = [
-        (lambda row: float("\n" in row["completion"]), "Completions with a newline"),
+        (newline, "Completions with a newline"),
         (lambda row: float("</answer>" not in row["completion"]), "Completions with no closed answer tag"),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(15, 4))
@@ -215,8 +226,11 @@ if __name__ == "__main__":
     if sys.argv[1] == "--formats":
         plot_formats(sys.argv[2])
         sys.exit()
-    if sys.argv[1] in ("--lengths", "--length-signal"):
-        (plot_lengths if sys.argv[1] == "--lengths" else plot_length_signal)(sys.argv[2])
+    if sys.argv[1] in BY_OUTCOME:
+        plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
+        sys.exit()
+    if sys.argv[1] == "--length-signal":
+        plot_length_signal(sys.argv[2])
         sys.exit()
     runs = [arg for arg in sys.argv[1:] if arg != "--start-box"]
     for run in runs:
