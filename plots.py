@@ -88,21 +88,26 @@ def outcome(row: dict) -> str:
 def plot_lengths(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    fig, axes = plt.subplots(1, len(rows), figsize=(4 * len(rows), 4))
-    for ax, level in zip(axes, sorted(rows)):
+    fig, axes = plt.subplots(2, len(rows), figsize=(4 * len(rows), 5), sharex="col", height_ratios=[1, 3])
+    for (top, ax), level in zip(axes.T, sorted(rows)):
+        starts = range(0, max(rows[level]) + 1, BIN)
+        centers = [s + BIN / 2 for s in starts]
+        bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
+        floor = [0.0] * len(bins)
         for name, color in OUTCOMES:
-            starts = range(0, max(rows[level]) + 1, BIN)
-            bins = [
-                [length(r) for step in range(start, start + BIN) for r in rows[level].get(step, []) if outcome(r) == name]
-                for start in starts
-            ]
-            means = [sum(b) / len(b) if len(b) >= MIN_SAMPLES else float("nan") for b in bins]
-            ax.plot([s + BIN / 2 for s in starts], means, "o-", color=color, label=name)
-        ax.set_title(f"{level} swaps")
+            lengths = [[length(r) for r in b if outcome(r) == name] for b in bins]
+            share = [len(v) / len(b) for v, b in zip(lengths, bins)]
+            top.bar(centers, share, BIN - 2, bottom=floor, color=color)
+            floor = [f + s for f, s in zip(floor, share)]
+            means = [sum(v) / len(v) if len(v) >= MIN_SAMPLES else float("nan") for v in lengths]
+            ax.plot(centers, means, "o-", color=color, label=name)
+        top.set_title(f"{level} swaps")
+        top.set_ylim(0, 1)
         ax.set_xlabel("Training step")
         ax.set_ylim(0)
-    axes[0].set_ylabel("Completion length (characters)")
-    axes[0].legend(loc="lower right")
+    axes[0, 0].set_ylabel("Share of samples")
+    axes[1, 0].set_ylabel("Completion length (characters)")
+    axes[1, 0].legend(loc="upper right")
     fig.suptitle(f"{model}: completion length by outcome")
     fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
