@@ -164,7 +164,8 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, layout="constrained")
+    axes = axes.flatten()
     pooled = defaultdict(list)
     for by_step in rows.values():
         for step, step_rows in by_step.items():
@@ -173,15 +174,18 @@ def plot_length_signal(run: str):
     for (name, text), (_, color) in zip(kinds, OUTCOMES):
         axes[0].plot(*smoothed(pooled, lambda row: float(text in row["completion"])), color=color, label=name, linewidth=2)
     axes[0].set_title("Completions containing")
-    for ax, metric, title in zip(axes[1:], [newline, tokens], ["Completions with a newline", "Completion length in tokens"]):
+    by_level = [(newline, "Completions with a newline"), (tokens, "Completion length in tokens"), (accuracy, "Accuracy")]
+    for ax, (metric, title) in zip(axes[1:], by_level):
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
             ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
         ax.set_title(title)
     for ax in axes:
-        ax.set_xlabel("Training step")
         ax.set_ylim(0)
-    for ax in axes[:2]:
+    for ax in axes[2:]:
+        ax.set_xlabel("Training step")
+    for ax in axes[[0, 1, 3]]:
         ax.yaxis.set_major_formatter("{x:.0%}")
+    for ax in axes[:2]:
         ax.legend(loc="upper right")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
