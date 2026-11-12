@@ -81,6 +81,13 @@ mark.hit { background: #ffe066; color: inherit; }
 .nonascii { background: #e4e0ff; border-bottom: 1px solid #86c; }
 .ws { color: #bbb; }
 
+.timeline { border-collapse: collapse; margin-bottom: 16px; width: 100%; }
+.timeline td, .timeline th { padding: 3px 10px; text-align: left; border-bottom: 1px solid #eee; }
+.timeline th { color: #888; font-weight: normal; }
+.timeline tr.current td { background: #f4f4ff; }
+.timeline a { color: #339; cursor: pointer; text-decoration: underline; }
+.step-head { margin: 20px 0 8px; display: flex; gap: 8px; align-items: center; color: #666; }
+
 .empty { padding: 60px; text-align: center; color: #999; }
 </style>
 </head>
@@ -120,8 +127,13 @@ mark.hit { background: #ffe066; color: inherit; }
   </div>
 
   <div class="section">
+    <h3>Across steps</h3>
+    <p>Tick "Across steps" (or press <b>c</b>) to follow one prompt through training: every completion sampled for it in every file of the same split, in step order, with outcome, parsed answer and reasoning length. Held-out (eval) prompts recur at every eval step, so use an eval file. Training prompts are drawn fresh and appear at one step only.</p>
+  </div>
+
+  <div class="section">
     <h3>Keys</h3>
-    <p><b>&larr; / &rarr;</b> or <b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group</p>
+    <p><b>&larr; / &rarr;</b> or <b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group<br><b>c</b>: toggle across steps</p>
   </div>
 
   <div class="section">
@@ -152,6 +164,7 @@ mark.hit { background: #ffe066; color: inherit; }
     </select></label>
     <input type="search" id="search" placeholder="Search completions...">
     <label><input type="checkbox" id="fws"> Show whitespace</label>
+    <label title="Show this prompt's completions at every step ( c )"><input type="checkbox" id="facross"> Across steps</label>
     <button id="info">?</button>
     <div class="nav-btns">
       <button id="prev">&larr;</button>
@@ -227,7 +240,8 @@ function outcome(it) {
 }
 
 function splitCompletion(prompt, text) {
-  const close = text.indexOf('</think>');
+  const tagged = text.match(/<\/think>\s*<answer>/);
+  const close = tagged ? tagged.index : text.lastIndexOf('</think>');
   if (close >= 0) return [text.slice(0, close), text.slice(close)];
   if (/<think>\s*$/.test(prompt)) return [text, ''];
   const body = text.replace(/\s+$/, '');
@@ -253,6 +267,51 @@ async function loadRun(run) {
   const file = files.includes(requested) ? requested : files[0];
   fillSelect($('ffile'), files, file, fileLabel);
   loadFile(file);
+}
+
+const fileCache = new Map();
+
+function fetchRows(run, file) {
+  const key = `${run}/${file}`;
+  if (!fileCache.has(key)) {
+    fileCache.set(key, fetch(`${RUNS_DIR}${run}/rollouts/${file}`).then(r => r.text()).then(text =>
+      text.split('\n').filter(Boolean).map(line => { const it = JSON.parse(line); it.outcome = outcome(it); return it; })));
+  }
+  return fileCache.get(key);
+}
+
+// Every completion sampled for this prompt in each file of the same split, in step order.
+async function renderAcross(it) {
+  const run = $('frun').value, here = $('ffile').value;
+  const { split } = parseFile(here);
+  const sameSplit = files.filter(f => parseFile(f).split === split);
+  $('content').innerHTML = `<div class="empty">Loading ${sameSplit.length} ${esc(split)} files...</div>`;
+  const perFile = await Promise.all(sameSplit.map(f => fetchRows(run, f)));
+  if (filtered[idx] !== it || !$('facross').checked) return;
+  const names = { correct: 'Correct', wrong: 'Wrong', unparsed: 'No answer' };
+  const steps = sameSplit.map((f, k) => ({ file: f, step: parseFile(f).step, rows: perFile[k].filter(r => r.prompt === it.prompt) })).filter(s => s.rows.length);
+  const reasoningOf = r => splitCompletion(r.prompt, r.completion)[0].trim();
+  const mean = xs => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+
+  let html = `<div class="meta-panel"><span class="badge tag">${esc(split)}, one prompt across ${steps.length} step${steps.length === 1 ? '' : 's'}</span>` +
+    `<span class="badge tag">level ${esc(it.level)}</span><span class="badge tag">expected ${esc(it.answer)}</span></div>`;
+  if (steps.length === 1) html += `<p class="step-head">This prompt was sampled at one step only. Held-out prompts recur at every eval step; pick an eval file to compare across training.</p>`;
+  html += '<table class="timeline"><tr><th>Step</th><th>Correct</th><th>Answers</th><th>Reasoning (chars)</th><th>Non-ASCII</th></tr>' +
+    steps.map(s => `<tr class="${s.file === here ? 'current' : ''}"><td><a data-file="${esc(s.file)}">${s.step}</a></td>` +
+      `<td>${s.rows.filter(r => r.reward > 0).length} of ${s.rows.length}</td>` +
+      `<td>${s.rows.map(r => `<span class="${r.outcome === 'correct' ? 'good' : r.outcome === 'wrong' ? 'bad' : 'warn'}">${r.parsed === null ? '–' : esc(r.parsed)}</span>`).join(' ')}</td>` +
+      `<td>${mean(s.rows.map(r => reasoningOf(r).length))}</td>` +
+      `<td>${mean(s.rows.map(r => (r.completion.match(NONASCII) || []).join('').length))}</td></tr>`).join('') + '</table>';
+  html += block('prompt', 'Prompt', it.prompt);
+  for (const s of steps) {
+    s.rows.forEach((r, k) => {
+      const [reasoning, final] = splitCompletion(r.prompt, r.completion);
+      html += `<div class="step-head"><b>Step ${s.step}</b>${s.rows.length > 1 ? ` sample ${k + 1}` : ''}` +
+        `<span class="badge ${r.outcome}">${names[r.outcome]}</span><span>${reasoning.trim().length} chars of reasoning</span></div>` +
+        block('reasoning', 'Reasoning', reasoning) + (final ? block('final', 'Answer', final) : '');
+    });
+  }
+  $('content').innerHTML = html;
 }
 
 async function loadFile(file, keepIndex = false) {
@@ -360,6 +419,7 @@ function render() {
   const it = filtered[idx];
   setParams({ i: it.n });
   $('pageinfo').textContent = `${idx + 1} of ${filtered.length}`;
+  if ($('facross').checked) return renderAcross(it);
   const [reasoning, final] = splitCompletion(it.prompt, it.completion);
   const { split, step } = parseFile($('ffile').value);
   const names = { correct: 'Correct', wrong: 'Wrong', unparsed: 'No answer' };
@@ -377,7 +437,7 @@ function render() {
     `<div><dt>Expected</dt><dd>${esc(it.answer)}</dd></div>` +
     `<div><dt>Parsed answer</dt><dd>${it.parsed === null ? '<span class="warn">none</span>' : esc(it.parsed)}</dd></div>` +
     `<div><dt>Reward</dt><dd>${it.reward}</dd></div>` +
-    `<div><dt>Length</dt><dd>${it.completion.length} chars</dd></div>` +
+    `<div><dt>Reasoning</dt><dd>${reasoning.trim().length} chars${it.tokens ? `, ${it.tokens} tokens in all` : ''}</dd></div>` +
     `<div><dt>Non-ASCII</dt><dd>${it.nonascii} chars</dd></div>` +
     `<div><dt>Group</dt><dd>prompt ${it.groupId}, ${solved} of ${it.group.length} correct</dd></div>` +
     `</dl>` +
@@ -416,6 +476,7 @@ $('frun').addEventListener('change', () => { setParams({ file: '', i: 0 }); load
 $('ffile').addEventListener('change', () => loadFile($('ffile').value, true));
 for (const id of ['foutcome', 'flevel', 'fsort']) $(id).addEventListener('change', () => applyFilter(true));
 $('fws').addEventListener('change', render);
+$('facross').addEventListener('change', render);
 $('search').addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => applyFilter(true), 300); });
 $('prev').addEventListener('click', () => go(-1));
 $('next').addEventListener('click', () => go(1));
@@ -427,6 +488,8 @@ $('overlay').addEventListener('click', toggleSidebar);
 $('content').addEventListener('click', e => {
   const header = e.target.closest('.msg-header');
   if (header) { collapsed[header.dataset.kind] = !collapsed[header.dataset.kind]; render(); }
+  const link = e.target.closest('a[data-file]');
+  if (link) { $('facross').checked = false; loadFile(link.dataset.file, true); }
   const chip = e.target.closest('.chip');
   if (chip) jumpTo(Number(chip.dataset.n));
 });
@@ -435,6 +498,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('sidebar').classList.contains('open')) toggleSidebar();
   if (e.key === 'ArrowLeft' || e.key === 'j') go(-1);
   if (e.key === 'ArrowRight' || e.key === 'k') go(1);
+  if (e.key === 'c') { $('facross').checked = !$('facross').checked; render(); }
   if (e.key === '[') goFile(-1);
   if (e.key === ']') goFile(1);
   if (e.key === 'g' && filtered.length) {

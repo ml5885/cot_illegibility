@@ -61,11 +61,11 @@ def test_plain_format_changes_only_the_stop_string():
 
 
 def test_logged_reward_uses_the_given_format(tmp_path):
-    kwargs = dict(prompts=["p"], answer=["C"], level=[1])
+    kwargs = dict(prompts=["p"], answer=["C"], level=[1], completion_ids=[[1]])
     completions = ["x</think><answer>C</answer>"]
-    assert logged_reward(tmp_path, TAGS, lambda: (0, "train"))(completions=completions, **kwargs) == [1.0]
-    assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"))(completions=completions, **kwargs) == [0.0]
-    assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"))(completions=["x\nAnswer: C"], **kwargs) == [1.0]
+    assert logged_reward(tmp_path, TAGS, lambda: (0, "train"), lambda stats: None)(completions=completions, **kwargs) == [1.0]
+    assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"), lambda stats: None)(completions=completions, **kwargs) == [0.0]
+    assert logged_reward(tmp_path, PLAIN, lambda: (0, "train"), lambda stats: None)(completions=["x\nAnswer: C"], **kwargs) == [1.0]
 
 
 @pytest.mark.parametrize("prompts, generations, batch", [(32, 8, 16), (4, 4, 8), (8, 16, 16), (32, 8, 256)])
