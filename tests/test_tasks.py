@@ -1,11 +1,13 @@
 import random
 import re
+from collections import Counter
 
 import pytest
 
 from tasks import FORMATS, MATH_EVAL, PLAIN, TAGS, dataset, math_problems, math_rows, normalize, swap_problem, swap_problems
 
 SWAP = re.compile(r"Swap the contents of boxes (\w) and (\w)\.")
+START = re.compile(r"A key is in box (\w)\.")
 
 
 def simulate(question: str) -> str:
@@ -39,6 +41,28 @@ def test_swap_problems_deterministic_and_seed_dependent():
 def test_swap_answers_roughly_uniform():
     answers = [p.answer for p in swap_problems(0, 6000, 30)]
     assert all(800 < answers.count(box) < 1200 for box in "ABCDEF")
+
+
+def shortcut_accuracy(problems, guess):
+    return sum(guess(p.question) == p.answer for p in problems) / len(problems)
+
+
+@pytest.mark.parametrize("n_swaps", [1, 2, 3, 4, 8, 32])
+def test_naming_the_starting_box_is_no_better_than_guessing(n_swaps):
+    problems = swap_problems(0, 6000, n_swaps)
+    assert abs(shortcut_accuracy(problems, lambda q: START.search(q).group(1)) - 1 / 6) < 0.02
+
+
+@pytest.mark.parametrize("n_swaps", [2, 3, 4, 8, 32])
+def test_positional_shortcuts_stay_well_below_solving(n_swaps):
+    problems = swap_problems(0, 6000, n_swaps)
+    most_mentioned = lambda q: Counter(box for pair in SWAP.findall(q) for box in pair).most_common(1)[0][0]
+    for guess in (lambda q: SWAP.findall(q)[-1][0], lambda q: SWAP.findall(q)[-1][1], most_mentioned):
+        assert shortcut_accuracy(problems, guess) < 0.45
+
+
+def test_zero_swaps_leaves_the_key_in_place():
+    assert all(START.search(p.question).group(1) == p.answer for p in swap_problems(0, 50, 0))
 
 
 @pytest.mark.parametrize(

@@ -66,13 +66,18 @@ class Problem:
 
 
 def swap_problem(rng: random.Random, n_swaps: int, n_boxes: int = 6) -> Problem:
+    """The key ends in a uniformly random box, so naming the starting box is no better than guessing."""
     boxes = [chr(ord("A") + i) for i in range(n_boxes)]
-    key = rng.choice(boxes)
-    lines = [f"There are {n_boxes} boxes labeled {boxes[0]} to {boxes[-1]}. A key is in box {key}."]
-    for _ in range(n_swaps):
-        a, b = rng.sample(boxes, 2)
-        lines.append(f"Swap the contents of boxes {a} and {b}.")
-        key = b if key == a else a if key == b else key
+    start = rng.choice(boxes)
+    moves = n_swaps > 0 and rng.random() < 1 - 1 / n_boxes
+    while True:
+        key, swaps = start, [rng.sample(boxes, 2) for _ in range(n_swaps)]
+        for a, b in swaps:
+            key = b if key == a else a if key == b else key
+        if (key != start) == moves:
+            break
+    lines = [f"There are {n_boxes} boxes labeled {boxes[0]} to {boxes[-1]}. A key is in box {start}."]
+    lines += [f"Swap the contents of boxes {a} and {b}." for a, b in swaps]
     lines.append("Which box contains the key? Answer with the letter of the box.")
     return Problem(" ".join(lines), key, n_swaps)
 

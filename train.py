@@ -24,6 +24,7 @@ def grpo_config(args: argparse.Namespace, out: Path):
 
     completions_per_step = args.prompts_per_step * args.generations
     assert completions_per_step % args.batch_size == 0 and args.batch_size % args.generations == 0
+    assert args.batch_size % args.eval_generations == 0
     return GRPOConfig(
         output_dir=str(out),
         run_name=args.name,
@@ -35,6 +36,7 @@ def grpo_config(args: argparse.Namespace, out: Path):
         gradient_accumulation_steps=completions_per_step // args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         num_generations=args.generations,
+        num_generations_eval=args.eval_generations,
         max_completion_length=args.max_tokens,
         temperature=args.temperature,
         generation_kwargs={"stop": [FORMATS[args.format].stop], "include_stop_str_in_output": True},
@@ -61,7 +63,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--name", required=True)
     parser.add_argument("--format", choices=FORMATS, default="tags", help="think/answer tags or plain text")
     parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
-    parser.add_argument("--swaps", type=int, nargs="+", default=[4, 8, 16, 32])
+    parser.add_argument("--swaps", type=int, nargs="+", default=[1, 2, 3, 4])
     parser.add_argument("--max-steps", type=int, default=300)
     parser.add_argument("--prompts-per-step", type=int, default=32)
     parser.add_argument("--generations", type=int, default=8)
@@ -71,7 +73,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--beta", type=float, default=0.0, help="KL coefficient")
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--lora-rank", type=int, default=32)
-    parser.add_argument("--eval-problems", type=int, default=64)
+    parser.add_argument("--eval-problems", type=int, default=240)
+    parser.add_argument("--eval-generations", type=int, default=1)
     parser.add_argument("--eval-steps", type=int, default=25)
     parser.add_argument("--save-steps", type=int, default=50)
     parser.add_argument("--vllm-memory", type=float, default=0.3)
