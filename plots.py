@@ -39,7 +39,7 @@ plt.rcParams.update({
 
 WINDOW = 5
 BIN, MIN_SAMPLES = 20, 5
-OUTCOMES = [("Correct", "#2a78d6"), ("Wrong answer", "#eb6834"), ("Wrong format", "#1baf7a")]
+OUTCOMES = [("Correct", "#2a78d6"), ("Incorrect", "#eb6834")]
 START = re.compile(r"A key is in box (\w)\.")
 
 
@@ -103,7 +103,7 @@ def plot(run: str, start_box: bool):
 
 
 def outcome(row: dict) -> str:
-    return "Correct" if row["reward"] else "Wrong answer" if row["parsed"] is not None else "Wrong format"
+    return "Correct" if row["reward"] else "Incorrect"
 
 
 def tokens(row: dict) -> float:
@@ -209,18 +209,14 @@ def correlation(rows: list[dict], within_puzzle: bool) -> tuple[float, float]:
 def plot_correlation(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    panels = [
-        ("All samples", False, lambda row: True),
-        ("Within a puzzle", True, lambda row: True),
-        ("Within a puzzle, wrong format excluded", True, lambda row: outcome(row) != "Wrong format"),
-    ]
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), sharey=True, layout="constrained")
+    panels = [("All samples", False), ("Within a puzzle", True)]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, layout="constrained")
     levels = sorted(rows)
     for offset, color, level in zip(range(len(levels)), plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), levels):
         starts = range(0, max(rows[level]) + 1, BIN)
         bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
-        for ax, (title, within, keep) in zip(axes, panels):
-            r, error = zip(*(correlation([row for row in b if keep(row)], within) for b in bins))
+        for ax, (title, within) in zip(axes, panels):
+            r, error = zip(*(correlation(b, within) for b in bins))
             xs = [s + BIN / 2 + 1.5 * (offset - (len(levels) - 1) / 2) for s in starts]
             ax.errorbar(xs, r, yerr=error, fmt="o-", color=color, label=f"{level} swaps", capsize=2, elinewidth=1)
             ax.set_title(title)
