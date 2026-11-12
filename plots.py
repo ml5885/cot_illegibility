@@ -10,6 +10,7 @@ uv run --with matplotlib plots.py --token-limit RUN               completion tok
 uv run --with matplotlib plots.py --blank-lines RUN               where the first blank line falls; reward vs a lenient parser
 uv run --with matplotlib plots.py --groups RUN                    rewarded vs unrewarded samples of the same puzzle
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
+uv run --with matplotlib plots.py --tracking RUN                  blank lines against per-swap tracking, by opening sentence
 """
 
 import json
@@ -381,20 +382,51 @@ CONCLUSION = re.compile(r"Therefore|Thus|So,? after|After all|After these|In con
 PARTS = ["Opening", "Swaps that move the key", "Swaps that leave it", "Conclusion", "Closing tag and answer"]
 
 
-def trace_parts(row: dict, count) -> dict:
-    """Split a completion into the text spent on each swap of its puzzle, matched in order by the pair of boxes named."""
+def puzzle(row: dict) -> tuple[list[tuple[str, str]], list[str], list[bool]]:
+    """The swaps of a row's puzzle, the key's box after each, and whether each moved the key."""
     question = row["prompt"].split("User:")[-1]
-    key, moves = START.search(question).group(1), []
+    key, after, moves = START.search(question).group(1), [], []
     swaps = SWAP.findall(question)
     for a, b in swaps:
         moves.append(key in (a, b))
         key = b if key == a else a if key == b else key
-    reasoning, tag, rest = row["completion"].partition("</think>")
-    starts, at = [], 0
+        after.append(key)
+    return swaps, after, moves
+
+
+def swap_mentions(reasoning: str, swaps: list[tuple[str, str]]) -> list[re.Match | None]:
+    """Where the reasoning takes up each swap, matched in order by the pair of boxes it names.
+    "boxes X and Y" is preferred, since the model often repeats the bare pair inside a step."""
+    found, at = [], 0
     for a, b in swaps:
-        mention = next((m for m in PAIR.finditer(reasoning, at) if set(m.groups()) == {a, b}), None)
-        starts.append(mention and mention.start())
+        named = [m for m in PAIR.finditer(reasoning, at) if set(m.groups()) == {a, b}]
+        mention = next((m for m in named if reasoning[: m.start()].endswith("boxes ")), named[0] if named else None)
+        found.append(mention)
         at = mention.end() if mention else at
+    return found
+
+
+def tracking(row: dict) -> list[str]:
+    """For each swap: whether the last box named in its step is where the key really is."""
+    swaps, after, _ = puzzle(row)
+    reasoning = row["completion"].partition("</think>")[0]
+    mentions = swap_mentions(reasoning, swaps)
+    starts = [m.start() for m in mentions if m] + [len(reasoning)]
+    outcomes = []
+    for mention, box in zip(mentions, after):
+        if not mention:
+            outcomes.append("skipped")
+            continue
+        named = re.findall(r"\b[A-F]\b", reasoning[mention.end() : next(s for s in starts if s > mention.start())])
+        outcomes.append("unstated" if not named else "right" if named[-1] == box else "wrong")
+    return outcomes
+
+
+def trace_parts(row: dict, count) -> dict:
+    """Split a completion into the text spent on each swap of its puzzle."""
+    swaps, _, moves = puzzle(row)
+    reasoning, tag, rest = row["completion"].partition("</think>")
+    starts = [m and m.start() for m in swap_mentions(reasoning, swaps)]
     found = [s for s in starts if s is not None]
     conclusion = CONCLUSION.search(reasoning, found[-1]) if found else None
     end = conclusion.start() if conclusion else len(reasoning)
@@ -408,6 +440,51 @@ def trace_parts(row: dict, count) -> dict:
         "Conclusion": count(reasoning[end:]),
         "Closing tag and answer": count(tag + rest),
     }
+
+
+def opening(row: dict) -> str:
+    return re.split(r"(?<=[.:!?])\s", row["completion"].strip(), maxsplit=1)[0]
+
+
+def plot_tracking(run: str):
+    """Observational: the opening is whichever sentence the model chose, not one we prefilled."""
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    width, enough = 5, 30
+    bins = defaultdict(list)
+    for by_step in rows.values():
+        for step, step_rows in by_step.items():
+            bins[step // width * width] += step_rows
+    counts = defaultdict(int)
+    for row in sum(bins.values(), []):
+        counts[opening(row)] += 1
+    groups = [("All responses", None)] + [(name, name) for name in sorted(counts, key=counts.get, reverse=True)[:3]]
+    panels = [
+        ("Responses with a blank line", lambda rs: sum("\n\n" in r["completion"] for r in rs) / len(rs)),
+        ("Swaps followed by the right key location", lambda rs: share(rs, "right")),
+        ("Swaps skipped or left without a location", lambda rs: share(rs, "skipped") + share(rs, "unstated")),
+    ]
+
+    def share(rs, outcome):
+        outcomes = [o for r in rs for o in tracking(r)]
+        return outcomes.count(outcome) / len(outcomes)
+
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6), sharey=True, layout="constrained")
+    for (label, name), color in zip(groups, ["black"] + PALETTE):
+        kept = {start: [r for r in rs if name in (None, opening(r))] for start, rs in sorted(bins.items())}
+        kept = {start: rs for start, rs in kept.items() if len(rs) >= enough}
+        for ax, (_, metric) in zip(axes, panels):
+            ax.plot([s + width / 2 for s in kept], [metric(rs) for rs in kept.values()], "o-", color=color, label=label, markersize=4,
+                    linewidth=2.5 if name is None else 1.5)
+    for ax, (title, _) in zip(axes, panels):
+        ax.set_title(title)
+        ax.set_xlabel("Training step")
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 1.03)
+    fig.legend(*axes[0].get_legend_handles_labels(), loc="outside lower center", ncol=2, fontsize=10, title="Opening sentence")
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-tracking.png", dpi=150)
 
 
 def plot_traces(run: str):
@@ -496,7 +573,7 @@ if __name__ == "__main__":
         sys.exit()
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
-        "--blank-lines": plot_blank_lines, "--groups": plot_groups, "--traces": plot_traces,
+        "--blank-lines": plot_blank_lines, "--groups": plot_groups, "--traces": plot_traces, "--tracking": plot_tracking,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
