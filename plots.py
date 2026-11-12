@@ -143,7 +143,7 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
         ax.grid(axis="y", color="0.9", linewidth=0.8)
         ax.set_axisbelow(True)
         if i % 2 == 0:
-            top.set_ylabel("Share")
+            top.set_ylabel("Proportion")
             ax.set_ylabel(label)
     for ax in panels[-2:]:
         ax.set_xlabel("Training step")
