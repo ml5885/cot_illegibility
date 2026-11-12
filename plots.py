@@ -7,6 +7,9 @@ uv run --with matplotlib plots.py --newlines RUN                  share of compl
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
+uv run --with matplotlib plots.py --blank-lines RUN               where the first blank line falls; reward vs a lenient parser
+uv run --with matplotlib plots.py --groups RUN                    rewarded vs unrewarded samples of the same puzzle
+uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
 """
 
 import json
@@ -269,6 +272,187 @@ def plot_token_limit(run: str):
     fig.savefig(f"figures/{run}-token-limit.png", dpi=150)
 
 
+PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]
+PAIR = re.compile(r"\b([A-F]) and ([A-F])\b")
+LOCATIONS = [
+    "Right after <think>", "After the opening sentence", "Between swap steps",
+    "Just before </think>", "Between the tags", "Inside the answer",
+]
+
+
+def blank_line_location(row: dict) -> str | None:
+    text = row["completion"]
+    at, think, answer = text.find("\n\n"), text.find("</think>"), text.find("<answer>")
+    if at < 0:
+        return None
+    if not text[:at].strip():
+        return LOCATIONS[0]
+    if think < 0 or at < think:
+        if think >= 0 and not text[at:think].strip():
+            return LOCATIONS[3]
+        return LOCATIONS[2] if PAIR.search(text[:at]) else LOCATIONS[1]
+    return LOCATIONS[4] if answer < 0 or at < answer else LOCATIONS[5]
+
+
+def lenient_correct(row: dict) -> float:
+    """Right letter in the last answer tag, whatever the whitespace, closing tags or wording around it."""
+    answer = row["completion"].rpartition("<answer>")
+    letters = set(re.findall(r"\b[A-F]\b", answer[2].split("</answer>")[0]))
+    return float(bool(answer[1]) and letters == {row["answer"]})
+
+
+def plot_blank_lines(run: str):
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    pooled = defaultdict(list)
+    for by_step in rows.values():
+        for step, step_rows in by_step.items():
+            pooled[step] += step_rows
+    fig, (where, scores) = plt.subplots(1, 2, figsize=(11, 4.4), layout="constrained")
+    shares = [smoothed(pooled, lambda row, name=name: float(blank_line_location(row) == name)) for name in LOCATIONS]
+    where.stackplot(shares[0][0], [share for _, share in shares], labels=LOCATIONS, colors=PALETTE)
+    where.set_title("Where the first blank line falls")
+    where.yaxis.set_major_formatter("{x:.0%}")
+    where.legend(loc="upper right", fontsize=10)
+    scores.plot(*smoothed(pooled, accuracy), color=PALETTE[0], linewidth=2, label="Rewarded")
+    scores.plot(*smoothed(pooled, lenient_correct), color=PALETTE[1], linewidth=2, linestyle="--", label="Correct under a lenient parser")
+    scores.set_title("Reward against a lenient parser")
+    scores.yaxis.set_major_formatter("{x:.0%}")
+    scores.legend(loc="lower right")
+    for ax in (where, scores):
+        ax.set_xlabel("Training step")
+        ax.set_ylim(0)
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-blank-lines.png", dpi=150)
+
+
+def plot_groups(run: str):
+    """One observation per GRPO group: the samples drawn for one puzzle at one step."""
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    subsets = [("All groups", lambda group: True), ("Groups with every answer well formed", lambda group: all(r["parsed"] is not None for r in group))]
+    metrics = [(newline, "Newline use, rewarded − unrewarded", "{x:+.0%}"), (tokens, "Tokens, rewarded − unrewarded", "{x:+.0f}")]
+    fig, axes = plt.subplots(3, 2, figsize=(11, 11), sharex=True, sharey="row", layout="constrained")
+    levels = sorted(rows)
+    for offset, color, level in zip(range(len(levels)), plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), levels):
+        starts = range(0, max(rows[level]) + 1, BIN)
+        xs = [s + BIN / 2 + 2 * (offset - (len(levels) - 1) / 2) for s in starts]
+        for column, (title, keep) in zip(axes.T, subsets):
+            mixed, share = [], []
+            for start in starts:
+                groups = defaultdict(list)
+                for step in range(start, start + BIN):
+                    for row in rows[level].get(step, []):
+                        groups[step, row["prompt"]].append(row)
+                kept = [g for g in groups.values() if 0 < sum(r["reward"] for r in g) < len(g) and keep(g)]
+                mixed.append(kept)
+                share.append(len(kept) / len(groups))
+            column[0].plot(xs, share, "o-", color=color, label=f"{level} swaps", markersize=4)
+            column[0].set_title(f"{title}\nShare with mixed rewards")
+            for ax, (metric, name, tick_format) in zip(column[1:], metrics):
+                side = lambda group, reward: [metric(r) for r in group if r["reward"] == reward]
+                gaps = [[sum(side(g, 1)) / len(side(g, 1)) - sum(side(g, 0)) / len(side(g, 0)) for g in b] for b in mixed]
+                enough = [len(g) >= MIN_SAMPLES for g in gaps]
+                means = [sum(g) / len(g) if ok else float("nan") for g, ok in zip(gaps, enough)]
+                errors = [
+                    (sum((x - m) ** 2 for x in g) / (len(g) - 1) / len(g)) ** 0.5 if ok else float("nan")
+                    for g, m, ok in zip(gaps, means, enough)
+                ]
+                ax.errorbar(xs, means, yerr=errors, fmt="o-", color=color, capsize=2, elinewidth=1, markersize=4)
+                for x, m, e, g, ok in zip(xs, means, errors, gaps, enough):
+                    if ok:
+                        ax.annotate(len(g), (x, m + e), xytext=(0, 3), textcoords="offset points", ha="center", fontsize=8, color=color)
+                ax.axhline(0, color="gray", linestyle=":", linewidth=1)
+                ax.set_title(name)
+                ax.yaxis.set_major_formatter(tick_format)
+    axes[0, 0].yaxis.set_major_formatter("{x:.0%}")
+    axes[0, 0].set_ylim(0)
+    axes[0, 1].legend(loc="upper right")
+    for ax in axes[-1]:
+        ax.set_xlabel("Training step")
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-groups.png", dpi=150)
+
+
+SWAP = re.compile(r"Swap the contents of boxes (\w) and (\w)\.")
+CONCLUSION = re.compile(r"Therefore|Thus|So,? after|After all|After these|In conclusion|Finally,|Hence|At the end|After performing|After completing")
+PARTS = ["Opening", "Swaps that move the key", "Swaps that leave it", "Conclusion", "Closing tag and answer"]
+
+
+def trace_parts(row: dict, count) -> dict:
+    """Split a completion into the text spent on each swap of its puzzle, matched in order by the pair of boxes named."""
+    question = row["prompt"].split("User:")[-1]
+    key, moves = START.search(question).group(1), []
+    swaps = SWAP.findall(question)
+    for a, b in swaps:
+        moves.append(key in (a, b))
+        key = b if key == a else a if key == b else key
+    reasoning, tag, rest = row["completion"].partition("</think>")
+    starts, at = [], 0
+    for a, b in swaps:
+        mention = next((m for m in PAIR.finditer(reasoning, at) if set(m.groups()) == {a, b}), None)
+        starts.append(mention and mention.start())
+        at = mention.end() if mention else at
+    found = [s for s in starts if s is not None]
+    conclusion = CONCLUSION.search(reasoning, found[-1]) if found else None
+    end = conclusion.start() if conclusion else len(reasoning)
+    size = dict(zip(found, map(count, (reasoning[a:b] for a, b in zip(found, found[1:] + [end])))))
+    per_swap = [(moved, size[s]) for s, moved in zip(starts, moves) if s is not None]
+    return {
+        "moving": [n for moved, n in per_swap if moved],
+        "staying": [n for moved, n in per_swap if not moved],
+        "possible": (sum(moves), len(moves) - sum(moves)),
+        "Opening": count(reasoning[: found[0]] if found else reasoning),
+        "Conclusion": count(reasoning[end:]),
+        "Closing tag and answer": count(tag + rest),
+    }
+
+
+def plot_traces(run: str):
+    from transformers import AutoTokenizer
+
+    args = json.loads(Path("runs", run, "args.json").read_text())
+    tokenizer = AutoTokenizer.from_pretrained(args["model"])
+    count = lambda text: len(tokenizer(text, add_special_tokens=False)["input_ids"])
+    held_out = load(run)["eval"]
+    level = max(held_out)
+    steps = [s for s in sorted(held_out[level]) if s >= 40]
+    solved = set.intersection(*({r["prompt"] for r in held_out[level][s] if r["reward"]} for s in steps))
+    traces = {s: [trace_parts(r, count) for r in held_out[level][s] if r["prompt"] in solved] for s in steps}
+    mean = lambda values: sum(values) / len(values)
+    fig, (covered, per_swap, parts) = plt.subplots(1, 3, figsize=(16, 4.4), layout="constrained")
+    for side, key, color in [(0, "moving", PALETTE[1]), (1, "staying", PALETTE[2])]:
+        label = PARTS[1 + side]
+        covered.plot(steps, [sum(len(t[key]) for t in traces[s]) / sum(t["possible"][side] for t in traces[s]) for s in steps], "o-", color=color, label=label)
+        per_swap.plot(steps, [mean([n for t in traces[s] for n in t[key]]) for s in steps], "o-", color=color, label=label)
+    totals = {
+        "Opening": [mean([t["Opening"] for t in traces[s]]) for s in steps],
+        "Swaps that move the key": [mean([sum(t["moving"]) for t in traces[s]]) for s in steps],
+        "Swaps that leave it": [mean([sum(t["staying"]) for t in traces[s]]) for s in steps],
+        "Conclusion": [mean([t["Conclusion"] for t in traces[s]]) for s in steps],
+        "Closing tag and answer": [mean([t["Closing tag and answer"] for t in traces[s]]) for s in steps],
+    }
+    floor = [0.0] * len(steps)
+    for name, color in zip(PARTS, [PALETTE[0], PALETTE[1], PALETTE[2], PALETTE[3], "0.6"]):
+        parts.bar(steps, totals[name], 14, bottom=floor, color=color, label=name)
+        floor = [f + v for f, v in zip(floor, totals[name])]
+    covered.set_title("Swaps addressed in the reasoning")
+    covered.yaxis.set_major_formatter("{x:.0%}")
+    covered.set_ylim(0, 1.05)
+    covered.legend(loc="lower right")
+    per_swap.set_title("Tokens per swap addressed")
+    per_swap.set_ylim(0)
+    parts.set_title("Tokens by part of the response")
+    parts.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=10)
+    for ax in (covered, per_swap, parts):
+        ax.set_xlabel("Training step")
+    fig.suptitle(f"{args['model'].split('/')[-1]}: correct {level}-swap traces on {len(solved)} held-out puzzles")
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-traces.png", dpi=150)
+
+
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -312,6 +496,7 @@ if __name__ == "__main__":
         sys.exit()
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
+        "--blank-lines": plot_blank_lines, "--groups": plot_groups, "--traces": plot_traces,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
