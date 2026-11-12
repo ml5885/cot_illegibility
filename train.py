@@ -107,4 +107,5 @@ if __name__ == "__main__":
     import os
 
     os.environ.setdefault("WANDB_PROJECT", "cot-illegibility")
+    os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
     main()

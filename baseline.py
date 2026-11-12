@@ -2,14 +2,17 @@
 
 import argparse
 import json
+import os
 import time
 from collections import defaultdict
 from pathlib import Path
 
-from vllm import LLM, SamplingParams
-
 from tasks import Problem, dataset, parse_answer, reward
 from train import STOP
+
+# The system nvcc is too old to JIT-compile FlashInfer's sampler.
+os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
+from vllm import LLM, SamplingParams  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", choices=["swaps", "math"], required=True)
