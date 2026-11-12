@@ -158,7 +158,7 @@ def plot_length_signal(run: str):
             ax.plot(*smoothed(rows[level], metric), color=color)
     axes[0].axhline(0, color="gray", linestyle=":", linewidth=1)
     axes[0].set_title("Correct minus incorrect length (characters)")
-    axes[0].legend()
+    axes[1].legend(*axes[0].get_legend_handles_labels(), loc="upper right")
     for ax, (_, title) in zip(axes[1:], shares):
         ax.set_title(title)
     for ax in axes:
