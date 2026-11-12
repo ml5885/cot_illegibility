@@ -439,9 +439,8 @@ def plot_coverage(run: str):
     panels = [
         ("Swaps written out", lambda rs, level: 1 - sum(map(missed, rs)) / (level * len(rs))),
         ("Responses that write out every swap", lambda rs, level: sum(missed(r) == 0 for r in rs) / len(rs)),
-        ("Responses exactly one swap short", lambda rs, level: sum(missed(r) == 1 for r in rs) / len(rs)),
     ]
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6), sharey=True, layout="constrained")
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.6), sharey=True, layout="constrained")
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(data["train"] | data["eval"])):
         trained = level in data["train"]
         bins = defaultdict(list)
