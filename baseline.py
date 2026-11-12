@@ -8,13 +8,13 @@ from pathlib import Path
 
 from vllm import LLM, SamplingParams
 
-from tasks import math_problems, parse_answer, reward, swap_problems
+from tasks import Problem, dataset, parse_answer, reward
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", choices=["swaps", "math"], required=True)
 parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
 parser.add_argument("--swaps", type=int, nargs="+", default=[2, 4, 8, 16, 32, 48])
-parser.add_argument("--problems", type=int, default=100, help="per swap level, or total for math")
+parser.add_argument("--problems", type=int, default=600, help="total, split evenly across swap levels")
 parser.add_argument("--k", type=int, default=64)
 parser.add_argument("--max-tokens", type=int, default=512)
 parser.add_argument("--temperature", type=float, default=1.0)
@@ -22,10 +22,7 @@ parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--out", type=Path, default=Path("runs/baseline"))
 args = parser.parse_args()
 
-if args.task == "swaps":
-    problems = [p for n in args.swaps for p in swap_problems(args.seed, args.problems, n)]
-else:
-    problems = math_problems(args.seed, args.problems)
+problems = [Problem(**row) for row in dataset(args.task, args.seed, args.problems, args.swaps)]
 
 llm = LLM(args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed)
 sampling = SamplingParams(

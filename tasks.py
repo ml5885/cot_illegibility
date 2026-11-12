@@ -2,7 +2,7 @@ import random
 import re
 from dataclasses import dataclass
 
-from datasets import load_dataset
+from datasets import Dataset, load_dataset
 
 ANSWER = re.compile(r"Answer:\s*([^\n]+)")
 BOXED = re.compile(r"\\boxed\{(.*)\}")
@@ -54,3 +54,11 @@ def parse_answer(completion: str) -> str | None:
 
 def reward(completion: str, answer: str) -> float:
     return float(parse_answer(completion) == normalize(answer))
+
+
+def dataset(task: str, seed: int, n: int, levels: list[int]) -> Dataset:
+    if task == "swaps":
+        problems = [p for i, k in enumerate(levels) for p in swap_problems(seed + i, n // len(levels), k)]
+    else:
+        problems = math_problems(seed, n)
+    return Dataset.from_list([vars(p) for p in problems])

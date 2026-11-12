@@ -10,3 +10,7 @@ dependencies = [
     "vllm",
     "wandb",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
