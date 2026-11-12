@@ -95,7 +95,7 @@ def plot(run: str, start_box: bool):
             if level in rows["train"]:
                 ax.plot(*smoothed(rows["train"][level], metric), color=color, label=f"{level} swaps")
             else:
-                ax.plot(*held_out_curve(rows["eval"][level], metric), ":", color=color, label=f"{level} swaps, held-out only")
+                ax.plot(*held_out_curve(rows["eval"][level], metric), color=color, label=f"{level} swaps, held-out only")
         ax.set_title(title)
         ax.set_xlabel("Training step")
     for ax in axes[:-1]:
@@ -188,7 +188,7 @@ def plot_length_signal(run: str):
             if level in rows:
                 ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
             else:
-                ax.plot(*held_out_curve(held_out[level], metric), ":", color=color, label=f"{level} swaps, held-out only")
+                ax.plot(*held_out_curve(held_out[level], metric), color=color, label=f"{level} swaps, held-out only")
         ax.set_title(title)
     for ax in axes:
         ax.set_ylim(0)
@@ -559,7 +559,7 @@ def plot_coverage(run: str):
         bins = dict(sorted(bins.items()))
         for ax, (_, metric) in zip(axes, panels):
             ax.plot(
-                list(bins), [metric(rs, level) for rs in bins.values()], "-" if trained else ":", color=color,
+                list(bins), [metric(rs, level) for rs in bins.values()], color=color,
                 label=f"{level} swaps" if trained else f"{level} swaps, held-out only",
             )
     for ax, (title, _) in zip(axes, panels):
