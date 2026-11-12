@@ -6,6 +6,7 @@ uv run --with matplotlib plots.py --lengths RUN                   completion len
 uv run --with matplotlib plots.py --newlines RUN                  share of completions with a newline, by outcome
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
+uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
 """
 
 import json
@@ -232,6 +233,44 @@ def plot_correlation(run: str):
     fig.savefig(f"figures/{run}-correlation.png", dpi=150)
 
 
+def plot_token_limit(run: str):
+    rows = load(run)["train"]
+    args = json.loads(Path("runs", run, "args.json").read_text())
+    limit, half = args["max_tokens"], BIN // 2
+    fig, axes = plt.subplots(4, 2, figsize=(10, 8.8), sharex=True, height_ratios=[1, 3] * 2, layout="constrained")
+    for i, level in enumerate(sorted(rows)):
+        top, ax = axes[2 * (i // 2), i % 2], axes[2 * (i // 2) + 1, i % 2]
+        starts = range(0, max(rows[level]) + 1, half)
+        centers = [s + half / 2 for s in starts]
+        bins = [sorted(r["tokens"] for step in range(start, start + half) for r in rows[level].get(step, [])) for start in starts]
+        top.bar(centers, [sum(t >= limit - 2 for t in b) / len(b) for b in bins], half - 2, color="#eb6834")
+        ax.fill_between(
+            centers, [b[len(b) // 20] for b in bins], [b[-len(b) // 20] for b in bins], color="#2a78d6", alpha=0.25, linewidth=0,
+            label="5th to 95th percentile",
+        )
+        ax.plot(centers, [b[len(b) // 2] for b in bins], color="#2a78d6", linewidth=2, label="Median")
+        ax.plot(centers, [b[-1] for b in bins], ".", color="0.35", label="Longest")
+        ax.axhline(limit, color="black", linestyle="--", linewidth=1, label="Token limit")
+        top.set_title(f"{level} swaps")
+        top.set_ylim(0, 0.15)
+        top.set_yticks([0, 0.15], ["0%", "15%"] if i % 2 == 0 else ["", ""])
+        top.spines["left"].set_visible(False)
+        top.tick_params(length=0)
+        ax.set_ylim(0, limit * 1.06)
+        ax.tick_params(labelbottom=True, labelleft=i % 2 == 0)
+        ax.grid(axis="y", color="0.9", linewidth=0.8)
+        ax.set_axisbelow(True)
+        if i % 2 == 0:
+            top.set_ylabel("Cut off")
+            ax.set_ylabel("Completion tokens")
+    for ax in axes[-1]:
+        ax.set_xlabel("Training step")
+    fig.legend(*axes[1, 0].get_legend_handles_labels(), loc="outside lower center", ncol=4)
+    fig.suptitle(f"{args['model'].split('/')[-1]}: completion length against the {limit}-token limit")
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-token-limit.png", dpi=150)
+
+
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -273,8 +312,9 @@ if __name__ == "__main__":
     if sys.argv[1] in BY_OUTCOME:
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
-    if sys.argv[1] in ("--length-signal", "--correlation"):
-        (plot_length_signal if sys.argv[1] == "--length-signal" else plot_correlation)(sys.argv[2])
+    OTHER = {"--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit}
+    if sys.argv[1] in OTHER:
+        OTHER[sys.argv[1]](sys.argv[2])
         sys.exit()
     runs = [arg for arg in sys.argv[1:] if arg != "--start-box"]
     for run in runs:
