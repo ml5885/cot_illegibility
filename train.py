@@ -45,6 +45,7 @@ def grpo_config(args: argparse.Namespace, out: Path):
         use_vllm=True,
         vllm_mode="colocate",
         vllm_gpu_memory_utilization=args.vllm_memory,
+        vllm_max_model_length=args.max_context,
         model_init_kwargs={"dtype": "bfloat16"},
         bf16=True,
         gradient_checkpointing=True,
@@ -78,7 +79,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--eval-generations", type=int, default=1)
     parser.add_argument("--eval-steps", type=int, default=25)
     parser.add_argument("--save-steps", type=int, default=50)
-    parser.add_argument("--vllm-memory", type=float, default=0.3)
+    parser.add_argument("--vllm-memory", type=float, default=0.42)
+    parser.add_argument("--max-context", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=0)
     return parser.parse_args(argv)
 
