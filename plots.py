@@ -21,7 +21,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from traces import PAIR, START, puzzle, swap_mentions, swap_steps
+from traces import PAIR, START, newline_after_swaps, puzzle, swap_mentions, swap_steps
 
 plt.rcParams.update({
     "font.family": "serif",
@@ -344,6 +344,11 @@ def right_share(rows: list[dict]) -> float:
     return sum(outcome == "right" for outcome, _ in steps) / len(steps)
 
 
+def newline_step_share(rows: list[dict]) -> float:
+    steps = [step for row in rows for step in newline_after_swaps(row)]
+    return sum(steps) / len(steps)
+
+
 def standalone_share(rows: list[dict]) -> float:
     steps = [step for row in rows for step in swap_steps(row)]
     return sum(standalone for _, standalone in steps) / len(steps)
@@ -381,11 +386,17 @@ def plot_tracking(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     width, examples = 5, EXAMPLES.get(run, [])
-    panels = [("Swaps followed by the right key location", right_share), ("Swaps followed by a standalone location statement", standalone_share)]
-    fig, axes = plt.subplots(
-        1, 3 if examples else 2, figsize=(16 if examples else 11, 4.4), layout="constrained",
-        width_ratios=[1, 1, 0.9] if examples else [1, 1],
-    )
+    panels = [
+        ("Swaps followed by the right key location", right_share),
+        ("Swaps followed by a newline", newline_step_share),
+        ("Swaps followed by a standalone location statement", standalone_share),
+    ]
+    if examples:
+        fig, grid = plt.subplots(2, 2, figsize=(11, 8), layout="constrained")
+        *axes, margin = grid.flatten()
+        margin.axis("off")
+    else:
+        fig, axes = plt.subplots(1, 3, figsize=(16, 4.4), layout="constrained")
     binned = {}
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
         bins = defaultdict(list)
@@ -400,11 +411,10 @@ def plot_tracking(run: str):
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_ylim(0, 1.03)
     axes[0].legend(loc="lower right")
-    for (level, step, text), height in zip(examples, [0.72, 0.28]):
+    for (level, step, text), height in zip(examples, [0.75, 0.3]):
         start = step // width * width
-        axes[2].axis("off")
-        axes[1].annotate(
-            text, xy=(start + width / 2, standalone_share(binned[level][start])), xytext=(0.0, height), textcoords=axes[2].transAxes,
+        axes[2].annotate(
+            text, xy=(start + width / 2, standalone_share(binned[level][start])), xytext=(0.05, height), textcoords=margin.transAxes,
             va="center", fontsize=10.5, bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": "0.4"},
             arrowprops={"arrowstyle": "->", "color": "0.25"}, annotation_clip=False,
         ).set_in_layout(False)

@@ -1,6 +1,6 @@
 import pytest
 
-from traces import puzzle, swap_steps
+from traces import newline_after_swaps, puzzle, swap_steps
 
 TEMPLATE = "User: There are 6 boxes labeled A to F. A key is in box {}. {} Which box contains the key? Assistant: <think>"
 
@@ -105,3 +105,8 @@ def test_layout_does_not_change_the_reading():
     plain = " 1. Swap A and B: The key moves to B. 2. Swap B and C: The key moves to C.</think>"
     spaced = " 1. Swap A and B:\n\n   The key moves to B.\n\n2. Swap B and C:\n\n   The key moves to C.\n\n</think>"
     assert swap_steps(row("A", ["AB", "BC"], plain)) == swap_steps(row("A", ["AB", "BC"], spaced))
+
+
+def test_newline_after_swaps_looks_at_each_written_step():
+    completion = " 1. Swap A and B: The key moves to B.\n2. Swap B and C: The key moves to C. So it is in C.</think>"
+    assert newline_after_swaps(row("A", ["AB", "BC", "DE"], completion)) == [True, False]

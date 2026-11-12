@@ -97,3 +97,10 @@ def swap_steps(row: dict) -> list[tuple[str, bool]]:
         outcome = "unstated" if not boxes else "right" if boxes[-1] == box else "wrong"
         steps.append((outcome, boxes.count(boxes[-1]) > 1 if boxes else False))
     return steps
+
+
+def newline_after_swaps(row: dict) -> list[bool]:
+    """For each swap the reasoning writes out: whether its step, as written, contains a line break."""
+    reasoning = row["completion"].partition("</think>")[0]
+    texts = step_texts(reasoning, swap_mentions(reasoning, puzzle(row)[0]))
+    return ["\n" in text for text in texts if text is not None]
