@@ -84,26 +84,28 @@ def plot(run: str, start_box: bool):
     panels = [(accuracy, "Accuracy"), (length, "Completion length (characters)")]
     if start_box:
         panels.insert(1, (names_start, "Answers naming the starting box"))
-    fig, axes = plt.subplots(1, len(panels), figsize=(5.5 * len(panels), 4))
+    fig, axes = plt.subplots(1, len(panels), figsize=(5.5 * len(panels), 4.4), layout="constrained")
     for ax, (metric, title) in zip(axes, panels):
-        for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows["train"])):
-            ax.plot(*smoothed(rows["train"][level], metric), color=color, label=f"{level} swaps")
+        for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows["train"] | rows["eval"])):
+            trained = level in rows["train"]
+            if trained:
+                ax.plot(*smoothed(rows["train"][level], metric), color=color, label=f"{level} swaps")
             held_out = rows["eval"][level]
             ax.plot(
                 sorted(held_out),
                 [sum(map(metric, held_out[s])) / len(held_out[s]) for s in sorted(held_out)],
-                "o",
+                "o" if trained else "o:",
                 color=color,
                 markeredgecolor="black",
+                label=None if trained else f"{level} swaps, held-out only",
             )
         ax.set_title(title)
         ax.set_xlabel("Training step")
     for ax in axes[:-1]:
         ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
         ax.set_ylim(-0.03, 1.03)
-    axes[0].legend(loc="lower right", ncol=2)
+    fig.legend(*axes[0].get_legend_handles_labels(), loc="outside lower center", ncol=4)
     fig.suptitle(f"{model}: training samples (lines) and held-out puzzles (dots)")
-    fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}.png", dpi=150)
 
@@ -194,7 +196,7 @@ def plot_length_signal(run: str):
     for ax in axes[[0, 1, 3]]:
         ax.yaxis.set_major_formatter("{x:.0%}")
     for ax in axes[:2]:
-        ax.legend(loc="upper right")
+        ax.legend(loc="best")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
