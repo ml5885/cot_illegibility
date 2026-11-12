@@ -376,6 +376,7 @@ def trace_parts(row: dict, count) -> dict:
 # Real sentences to show beside the standalone-statement panel: run -> (swap count, training step, text).
 EXAMPLES = {
     "swaps-7b-tags-v2": [
+        (4, 5, 'Step 5\n"3. Swap boxes E and B:\nThe key moves from box B to box E."'),
         (4, 100, 'Step 100\n"1. Swap the contents of boxes D and A:\nThe key, being in box D, will move to box A.\nSo now, the key is in box A."'),
         (4, 187, 'Step 187\n"5. Swap the contents of boxes A and E:\nThe key, initially in E, will move to box A."'),
     ],
@@ -411,7 +412,7 @@ def plot_tracking(run: str):
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_ylim(0, 1.03)
     axes[0].legend(loc="lower right")
-    for (level, step, text), height in zip(examples, [0.75, 0.3]):
+    for (level, step, text), height in zip(examples, [0.12, 0.78, 0.45]):
         start = step // width * width
         axes[2].annotate(
             text, xy=(start + width / 2, standalone_share(binned[level][start])), xytext=(0.05, height), textcoords=margin.transAxes,
