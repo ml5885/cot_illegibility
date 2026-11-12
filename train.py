@@ -5,16 +5,24 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from rollouts import score_and_save
+from rollouts import by_level, score_and_save
 from tasks import FORMATS, Format, dataset
 
 
-def logged_reward(directory: Path, fmt: Format, state: Callable[[], tuple[int, str]]):
-    """Reward on the final answer only. `state` returns the current (step, split)."""
+def logged_reward(directory: Path, fmt: Format, state: Callable[[], tuple[int, str]], log: Callable[[dict], None]):
+    """Reward on the final answer only. `state` returns the current (step, split); `log` gets per-level stats."""
 
-    def correct(prompts, completions, answer, level, **kwargs):
+    seen = {"key": None, "rows": []}
+
+    def correct(prompts, completions, completion_ids, answer, level, **kwargs):
         step, split = state()
-        return score_and_save(directory, fmt, split, step, prompts, completions, answer, level)
+        if seen["key"] != (step, split):
+            seen.update(key=(step, split), rows=[])
+        tokens = [len(ids) for ids in completion_ids]
+        rows = score_and_save(directory, fmt, split, step, prompts, completions, answer, level, tokens)
+        seen["rows"] += rows  # eval arrives in several batches; log the running mean over the whole step
+        log({f"{split}_levels/{name}": value for name, value in by_level(seen["rows"]).items()})
+        return [row["reward"] for row in rows]
 
     return correct
 
@@ -88,6 +96,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main():
     args = parse_args()
 
+    import wandb
     from peft import LoraConfig
     from trl import GRPOTrainer
 
@@ -102,6 +111,7 @@ def main():
             out / "rollouts",
             fmt,
             lambda: (trainer.state.global_step, "train" if trainer.model.training else "eval"),
+            lambda stats: wandb.log(stats, commit=False),
         ),
         args=grpo_config(args, out),
         train_dataset=dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps, fmt),

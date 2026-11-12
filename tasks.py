@@ -12,27 +12,31 @@ PLAIN_ANSWER = re.compile(r"Answer:\s*(.+)")
 MATH_EVAL = 500
 
 
-def parse_tags(completion: str) -> str | None:
+def split_tags(completion: str) -> tuple[str, str | None]:
     """The completion continues an open <think>, so it must close it and then give a closed <answer>."""
     match = TAGGED_ANSWER.search(completion)
-    return match.group(1) if match else None
+    return (completion[: match.start()], match.group(1)) if match else (completion, None)
 
 
-def parse_plain(completion: str) -> str | None:
+def split_plain(completion: str) -> tuple[str, str | None]:
     """The answer counts only if it is on the final line, so nothing after it can be rewarded."""
-    last_line = completion.removesuffix(PLAIN.stop).rstrip().rsplit("\n", 1)[-1]
+    *reasoning, last_line = completion.removesuffix(PLAIN.stop).rstrip().rsplit("\n", 1)
     match = PLAIN_ANSWER.search(last_line)
-    return match.group(1) if match else None
+    return ("".join(reasoning), match.group(1)) if match else (completion, None)
 
 
 @dataclass(frozen=True)
 class Format:
     template: str
     stop: str
-    parse: Callable[[str], str | None]
+    skip: str  # appended to the prompt, it forces an answer with no reasoning
+    split: Callable[[str], tuple[str, str | None]]  # completion -> (reasoning, raw answer)
+
+    def reasoning(self, completion: str) -> str:
+        return self.split(completion)[0].strip()
 
     def parse_answer(self, completion: str) -> str | None:
-        answer = self.parse(completion)
+        answer = self.split(completion)[1]
         return None if answer is None else normalize(answer)
 
     def reward(self, completion: str, answer: str) -> float:
@@ -47,13 +51,15 @@ TAGS = Format(
     "respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>. "
     "User: {} Assistant: <think>",
     "</answer>",
-    parse_tags,
+    " </think> <answer>",
+    split_tags,
 )
 PLAIN = Format(
     'Solve the following problem. Reason step by step, then end with a line of the form "Answer: X".\n\n'
     "Problem: {}\nReasoning:",
     "\nProblem:",
-    parse_plain,
+    "\nAnswer:",
+    split_plain,
 )
 FORMATS = {"tags": TAGS, "plain": PLAIN}
 

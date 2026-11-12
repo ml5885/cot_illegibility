@@ -12,10 +12,11 @@ def read(path):
 
 def test_logged_reward_scores_and_records_every_completion(tmp_path):
     state = [(3, "train")]
-    correct = logged_reward(tmp_path, TAGS, lambda: state[0])
+    logs = []
+    correct = logged_reward(tmp_path, TAGS, lambda: state[0], logs.append)
     assert correct.__name__ == "correct"
 
-    kwargs = dict(prompts=["p1", "p1", "p2"], answer=["C", "C", "34"], level=[4, 4, 0], completion_ids=[[1], [2], [3]])
+    kwargs = dict(prompts=["p1", "p1", "p2"], answer=["C", "C", "34"], level=[4, 4, 0], completion_ids=[[1, 2], [2], [3]])
     assert correct(completions=["x</think><answer>C</answer>", "x</think><answer>D</answer>", "junk"], **kwargs) == [1.0, 0.0, 0.0]
     assert correct(completions=["junk", "junk", "junk"], **kwargs) == [0.0, 0.0, 0.0]
 
@@ -27,7 +28,15 @@ def test_logged_reward_scores_and_records_every_completion(tmp_path):
     assert len(train) == 6 and len(evaluation) == 3
     assert train[0] == {
         "prompt": "p1", "completion": "x</think><answer>C</answer>",
-        "answer": "C", "parsed": "C", "level": 4, "reward": 1.0,
+        "answer": "C", "parsed": "C", "level": 4, "reward": 1.0, "tokens": 2, "reasoning_chars": 1,
+    }
+    assert logs[0]["train_levels/accuracy/level_4"] == 0.5 and logs[0]["train_levels/tokens/level_4"] == 1.5
+    assert logs[1]["train_levels/accuracy/level_4"] == 0.25  # running mean over both batches of step 3
+    assert logs[2] == {
+        "eval_levels/accuracy/level_4": 0.0, "eval_levels/parsed/level_4": 0.0,
+        "eval_levels/tokens/level_4": 1.5, "eval_levels/reasoning_chars/level_4": 1.0,
+        "eval_levels/accuracy/level_0": 1.0, "eval_levels/parsed/level_0": 1.0,
+        "eval_levels/tokens/level_0": 1.0, "eval_levels/reasoning_chars/level_0": 0.0,
     }
     assert [r["parsed"] for r in train[:3]] == ["C", "D", None]
     assert evaluation[2]["reward"] == 1.0 and evaluation[2]["parsed"] == "34"

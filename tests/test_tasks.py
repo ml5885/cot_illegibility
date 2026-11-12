@@ -190,3 +190,23 @@ def test_math_dataset_format(fmt, solve):
     for prompt, answer in zip(data["prompt"], data["answer"]):
         assert prompt.startswith(head) and prompt.endswith(tail)
         assert fmt.reward(solve.format(answer), answer) == 1.0
+
+
+@pytest.mark.parametrize(
+    "fmt, completion, reasoning",
+    [
+        (TAGS, " The key moves to B. </think> <answer>B</answer>", "The key moves to B."),
+        (TAGS, " first </think> <think> second </think> <answer> B </answer>", "first </think> <think> second"),
+        (TAGS, " never closes", "never closes"),
+        (PLAIN, " Step one.\nStep two.\nAnswer: B", "Step one.\nStep two."),
+        (PLAIN, " no final line", "no final line"),
+    ],
+)
+def test_reasoning_is_everything_before_the_answer(fmt, completion, reasoning):
+    assert fmt.reasoning(completion) == reasoning
+
+
+@pytest.mark.parametrize("fmt", [TAGS, PLAIN])
+def test_skipping_the_reasoning_still_parses(fmt):
+    completion = fmt.skip + " E " + (fmt.stop if fmt is TAGS else "")
+    assert fmt.parse_answer(completion) == "E" and fmt.reasoning(completion) == ""
