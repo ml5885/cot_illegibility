@@ -8,10 +8,8 @@ uv run --with matplotlib plots.py --length-signal RUN             what the rewar
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
 uv run --with matplotlib plots.py --blank-lines RUN               where the first blank line falls; reward vs a lenient parser
-uv run --with matplotlib plots.py --groups RUN                    rewarded vs unrewarded samples of the same puzzle
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
-uv run --with matplotlib plots.py --tracking RUN                  blank lines against per-swap tracking, by swap count
-uv run --with matplotlib plots.py --styles RUN                    blank-line vs plain responses to the same puzzle
+uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and restating, by swap count
 uv run --with matplotlib plots.py --coverage RUN                  how many of a puzzle's swaps the reasoning writes out
 """
 
@@ -333,55 +331,6 @@ def plot_blank_lines(run: str):
     fig.savefig(f"figures/{run}-blank-lines.png", dpi=150)
 
 
-def plot_groups(run: str):
-    """One observation per GRPO group: the samples drawn for one puzzle at one step."""
-    rows = load(run)["train"]
-    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    subsets = [("All groups", lambda group: True), ("Groups with every answer well formed", lambda group: all(r["parsed"] is not None for r in group))]
-    metrics = [(newline, "Newline use, rewarded − unrewarded", "{x:+.0%}"), (tokens, "Tokens, rewarded − unrewarded", "{x:+.0f}")]
-    fig, axes = plt.subplots(3, 2, figsize=(11, 11), sharex=True, sharey="row", layout="constrained")
-    levels = sorted(rows)
-    for offset, color, level in zip(range(len(levels)), plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), levels):
-        starts = range(0, max(rows[level]) + 1, BIN)
-        xs = [s + BIN / 2 + 2 * (offset - (len(levels) - 1) / 2) for s in starts]
-        for column, (title, keep) in zip(axes.T, subsets):
-            mixed, share = [], []
-            for start in starts:
-                groups = defaultdict(list)
-                for step in range(start, start + BIN):
-                    for row in rows[level].get(step, []):
-                        groups[step, row["prompt"]].append(row)
-                kept = [g for g in groups.values() if 0 < sum(r["reward"] for r in g) < len(g) and keep(g)]
-                mixed.append(kept)
-                share.append(len(kept) / len(groups))
-            column[0].plot(xs, share, "o-", color=color, label=f"{level} swaps", markersize=4)
-            column[0].set_title(f"{title}\nShare with mixed rewards")
-            for ax, (metric, name, tick_format) in zip(column[1:], metrics):
-                side = lambda group, reward: [metric(r) for r in group if r["reward"] == reward]
-                gaps = [[sum(side(g, 1)) / len(side(g, 1)) - sum(side(g, 0)) / len(side(g, 0)) for g in b] for b in mixed]
-                enough = [len(g) >= MIN_SAMPLES for g in gaps]
-                means = [sum(g) / len(g) if ok else float("nan") for g, ok in zip(gaps, enough)]
-                errors = [
-                    (sum((x - m) ** 2 for x in g) / (len(g) - 1) / len(g)) ** 0.5 if ok else float("nan")
-                    for g, m, ok in zip(gaps, means, enough)
-                ]
-                ax.errorbar(xs, means, yerr=errors, fmt="o-", color=color, capsize=2, elinewidth=1, markersize=4)
-                for x, m, e, g, ok in zip(xs, means, errors, gaps, enough):
-                    if ok:
-                        ax.annotate(len(g), (x, m + e), xytext=(0, 3), textcoords="offset points", ha="center", fontsize=8, color=color)
-                ax.axhline(0, color="gray", linestyle=":", linewidth=1)
-                ax.set_title(name)
-                ax.yaxis.set_major_formatter(tick_format)
-    axes[0, 0].yaxis.set_major_formatter("{x:.0%}")
-    axes[0, 0].set_ylim(0)
-    axes[0, 1].legend(loc="upper right")
-    for ax in axes[-1]:
-        ax.set_xlabel("Training step")
-    fig.suptitle(model)
-    Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-groups.png", dpi=150)
-
-
 CONCLUSION = re.compile(r"Therefore|Thus|So,? after|After all|After these|In conclusion|Finally,|Hence|At the end|After performing|After completing")
 PARTS = ["Opening", "Swaps that move the key", "Swaps that leave it", "Conclusion", "Closing tag and answer"]
 
@@ -413,7 +362,6 @@ def trace_parts(row: dict, count) -> dict:
     return {
         "moving": [n for moved, n in per_swap if moved],
         "staying": [n for moved, n in per_swap if not moved],
-        "possible": (sum(moves), len(moves) - sum(moves)),
         "Opening": count(reasoning[: found[0]] if found else reasoning),
         "Conclusion": count(reasoning[end:]),
         "Closing tag and answer": count(tag + rest),
@@ -424,28 +372,21 @@ def plot_tracking(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     width = 5
-    share = lambda outcome: lambda rs: [o for r in rs for o in tracking(r)].count(outcome) / sum(len(tracking(r)) for r in rs)
-    panels = [
-        ("Responses with a blank line", lambda rs: sum("\n\n" in r["completion"] for r in rs) / len(rs)),
-        ("Swaps followed by the right key location", right_share),
-        ("Swaps skipped or left without a location", lambda rs: share("skipped")(rs) + share("unstated")(rs)),
-        ("Swaps whose step restates the location", restated_share),
-    ]
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey=True, layout="constrained")
+    panels = [("Swaps followed by the right key location", right_share), ("Swaps whose step restates the location", restated_share)]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), sharey=True, layout="constrained")
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
         bins = defaultdict(list)
         for step, step_rows in rows[level].items():
             bins[step // width * width] += step_rows
         bins = dict(sorted(bins.items()))
-        for ax, (_, metric) in zip(axes.flatten(), panels):
+        for ax, (_, metric) in zip(axes, panels):
             ax.plot([s + width / 2 for s in bins], [metric(rs) for rs in bins.values()], color=color, label=f"{level} swaps")
-    for ax, (title, _) in zip(axes.flatten(), panels):
+    for ax, (title, _) in zip(axes, panels):
         ax.set_title(title)
+        ax.set_xlabel("Training step")
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_ylim(0, 1.03)
-    for ax in axes[1]:
-        ax.set_xlabel("Training step")
-    axes[0, 0].legend(loc="best")
+    axes[1].legend(loc="best")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-tracking.png", dpi=150)
@@ -463,10 +404,9 @@ def plot_traces(run: str):
     solved = set.intersection(*({r["prompt"] for r in held_out[level][s] if r["reward"]} for s in steps))
     traces = {s: [trace_parts(r, count) for r in held_out[level][s] if r["prompt"] in solved] for s in steps}
     mean = lambda values: sum(values) / len(values)
-    fig, (covered, per_swap, parts) = plt.subplots(1, 3, figsize=(16, 4.4), layout="constrained")
+    fig, (per_swap, parts) = plt.subplots(1, 2, figsize=(11, 4.4), layout="constrained")
     for side, key, color in [(0, "moving", PALETTE[1]), (1, "staying", PALETTE[2])]:
         label = PARTS[1 + side]
-        covered.plot(steps, [sum(len(t[key]) for t in traces[s]) / sum(t["possible"][side] for t in traces[s]) for s in steps], "o-", color=color, label=label)
         per_swap.plot(steps, [mean([n for t in traces[s] for n in t[key]]) for s in steps], "o-", color=color, label=label)
     totals = {
         "Opening": [mean([t["Opening"] for t in traces[s]]) for s in steps],
@@ -479,15 +419,12 @@ def plot_traces(run: str):
     for name, color in zip(PARTS, [PALETTE[0], PALETTE[1], PALETTE[2], PALETTE[3], "0.6"]):
         parts.bar(steps, totals[name], 14, bottom=floor, color=color, label=name)
         floor = [f + v for f, v in zip(floor, totals[name])]
-    covered.set_title("Swaps addressed in the reasoning")
-    covered.yaxis.set_major_formatter("{x:.0%}")
-    covered.set_ylim(0, 1.05)
-    covered.legend(loc="lower right")
     per_swap.set_title("Tokens per swap addressed")
     per_swap.set_ylim(0)
+    per_swap.legend(loc="lower left")
     parts.set_title("Tokens by part of the response")
     parts.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=10)
-    for ax in (covered, per_swap, parts):
+    for ax in (per_swap, parts):
         ax.set_xlabel("Training step")
     fig.suptitle(f"{args['model'].split('/')[-1]}: correct {level}-swap traces on {len(solved)} held-out puzzles")
     Path("figures").mkdir(exist_ok=True)
@@ -525,43 +462,6 @@ def plot_coverage(run: str):
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-coverage.png", dpi=150)
-
-
-def plot_styles(run: str):
-    """Blank-line minus plain responses within a rollout group that has both, one observation per group."""
-    rows = load(run)["train"]
-    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    width = 10
-    groups = defaultdict(list)
-    for by_step in rows.values():
-        for step, step_rows in by_step.items():
-            for row in step_rows:
-                groups[step, row["prompt"]].append(row)
-    subsets = [("All responses", lambda r: True), ("Rewarded responses only", lambda r: r["reward"] == 1)]
-    metrics = [("Swaps followed by the right key location", right_share), ("Swaps whose step restates the location", restated_share)]
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey="row", layout="constrained")
-    for column, (subset, keep) in zip(axes.T, subsets):
-        for ax, (title, metric) in zip(column, metrics):
-            gaps = defaultdict(list)
-            for (step, _), group in groups.items():
-                blank = [r for r in group if keep(r) and "\n\n" in r["completion"]]
-                plain = [r for r in group if keep(r) and "\n\n" not in r["completion"]]
-                if blank and plain:
-                    gaps[step // width * width].append(metric(blank) - metric(plain))
-            gaps = {start: g for start, g in sorted(gaps.items()) if len(g) >= MIN_SAMPLES}
-            xs = [start + width / 2 for start in gaps]
-            means = [sum(g) / len(g) for g in gaps.values()]
-            errors = [(sum((x - m) ** 2 for x in g) / (len(g) - 1) / len(g)) ** 0.5 for g, m in zip(gaps.values(), means)]
-            ax.errorbar(xs, means, yerr=errors, fmt="o-", color=PALETTE[0], capsize=3)
-            for x, m, e, g in zip(xs, means, errors, gaps.values()):
-                ax.annotate(len(g), (x, m + e), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=9)
-            ax.axhline(0, color="gray", linestyle=":", linewidth=1)
-            ax.set_title(f"{subset}\n{title}" if ax is column[0] else title)
-            ax.yaxis.set_major_formatter("{x:+.0%}")
-        column[-1].set_xlabel("Training step")
-    fig.suptitle(f"{model}: blank-line minus plain responses to the same puzzle")
-    Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-styles.png", dpi=150)
 
 
 def reweighted(rows: list[dict], metric) -> float:
@@ -607,8 +507,7 @@ if __name__ == "__main__":
         sys.exit()
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
-        "--blank-lines": plot_blank_lines, "--groups": plot_groups, "--traces": plot_traces, "--tracking": plot_tracking,
-        "--styles": plot_styles, "--coverage": plot_coverage,
+        "--blank-lines": plot_blank_lines, "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
