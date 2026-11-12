@@ -94,7 +94,7 @@ def test_a_list_of_the_swaps_before_the_walkthrough_is_not_taken_for_the_walkthr
     assert outcomes("A", ["AB", "BC"], completion) == ["right", "right"]
 
 
-def test_restating_counts_sentences_that_place_the_key_in_the_final_box():
+def test_a_standalone_location_statement_is_a_second_sentence_placing_the_key():
     once = " 1. Swap A and B: The key, in A, will move to B.</think>"
     twice = " 1. Swap A and B: The key is in box A, so it moves to box B. So now the key is in box B.</think>"
     assert swap_steps(row("A", ["AB"], once)) == [("right", False)]

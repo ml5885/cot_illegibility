@@ -83,8 +83,9 @@ def stated_boxes(step: str) -> list[str]:
 
 def swap_steps(row: dict) -> list[tuple[str, bool]]:
     """For each swap: whether its step ends with the key in the right box ("right", "wrong"), names no box for
-    the key ("unstated"), or the swap is never taken up as given ("skipped"); and whether the step says where the
-    key ends up in more than one sentence. Whitespace is normalized first."""
+    the key ("unstated"), or the swap is never taken up as given ("skipped"); and whether, after working out
+    where the key goes, the step states the result in a sentence of its own ("So now, the key is in box A.").
+    Whitespace is normalized first."""
     swaps, after, _ = puzzle(row)
     reasoning = " ".join(row["completion"].partition("</think>")[0].split())
     steps = []

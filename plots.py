@@ -9,7 +9,7 @@ uv run --with matplotlib plots.py --correlation RUN               correlation of
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
 uv run --with matplotlib plots.py --blank-lines RUN               where the first blank line falls; reward vs a lenient parser
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
-uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and restating, by swap count
+uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and standalone location statements, by swap count
 uv run --with matplotlib plots.py --coverage RUN                  how many of a puzzle's swaps the reasoning writes out
 """
 
@@ -344,9 +344,9 @@ def right_share(rows: list[dict]) -> float:
     return sum(outcome == "right" for outcome, _ in steps) / len(steps)
 
 
-def restated_share(rows: list[dict]) -> float:
+def standalone_share(rows: list[dict]) -> float:
     steps = [step for row in rows for step in swap_steps(row)]
-    return sum(restated for _, restated in steps) / len(steps)
+    return sum(standalone for _, standalone in steps) / len(steps)
 
 
 def trace_parts(row: dict, count) -> dict:
@@ -372,7 +372,7 @@ def plot_tracking(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     width = 5
-    panels = [("Swaps followed by the right key location", right_share), ("Swaps whose step restates the location", restated_share)]
+    panels = [("Swaps followed by the right key location", right_share), ("Swaps followed by a standalone location statement", standalone_share)]
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.4), sharey=True, layout="constrained")
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
         bins = defaultdict(list)
