@@ -177,7 +177,7 @@ mark.hit { background: #ffe066; color: inherit; }
 
 <script>
 const RUNS_DIR = '../runs/';
-const HELP = '\n\nRun from the project root:\n  view/sync.sh\nThen open http://localhost:8000/view/';
+const HELP = '\n\nRun from the project root:\n  view/sync.sh\nThen open http://localhost:8010/view/';
 const NONASCII = /[^\x00-\x7F]+/g;
 
 let files = [];
@@ -476,7 +476,7 @@ $('frun').addEventListener('change', () => { setParams({ file: '', i: 0 }); load
 $('ffile').addEventListener('change', () => loadFile($('ffile').value, true));
 for (const id of ['foutcome', 'flevel', 'fsort']) $(id).addEventListener('change', () => applyFilter(true));
 $('fws').addEventListener('change', render);
-$('facross').addEventListener('change', render);
+$('facross').addEventListener('change', () => { setParams({ across: $('facross').checked ? 1 : 0 }); render(); });
 $('search').addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => applyFilter(true), 300); });
 $('prev').addEventListener('click', () => go(-1));
 $('next').addEventListener('click', () => go(1));
@@ -498,7 +498,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && $('sidebar').classList.contains('open')) toggleSidebar();
   if (e.key === 'ArrowLeft' || e.key === 'j') go(-1);
   if (e.key === 'ArrowRight' || e.key === 'k') go(1);
-  if (e.key === 'c') { $('facross').checked = !$('facross').checked; render(); }
+  if (e.key === 'c') $('facross').click();
   if (e.key === '[') goFile(-1);
   if (e.key === ']') goFile(1);
   if (e.key === 'g' && filtered.length) {
@@ -518,6 +518,7 @@ document.addEventListener('keydown', e => {
   const requested = params().get('run');
   const run = runs.includes(requested) ? requested : runs[0];
   fillSelect($('frun'), runs, run);
+  $('facross').checked = params().get('across') === '1';
   loadRun(run);
 })();
 </script>
