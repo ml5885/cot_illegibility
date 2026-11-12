@@ -77,6 +77,11 @@ def smoothed(by_step: dict[int, list[dict]], metric) -> tuple[list[int], list[fl
     return steps, [sum(w := means[max(0, i - WINDOW + 1) : i + 1]) / len(w) for i in range(len(means))]
 
 
+def held_out_curve(by_step: dict[int, list[dict]], metric) -> tuple[list[int], list[float]]:
+    steps = sorted(by_step)
+    return steps, [sum(map(metric, by_step[s])) / len(by_step[s]) for s in steps]
+
+
 def plot(run: str, start_box: bool):
     rows = load(run)
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
@@ -86,25 +91,17 @@ def plot(run: str, start_box: bool):
     fig, axes = plt.subplots(1, len(panels), figsize=(5.5 * len(panels), 4.4), layout="constrained")
     for ax, (metric, title) in zip(axes, panels):
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows["train"] | rows["eval"])):
-            trained = level in rows["train"]
-            if trained:
+            if level in rows["train"]:
                 ax.plot(*smoothed(rows["train"][level], metric), color=color, label=f"{level} swaps")
-            held_out = rows["eval"][level]
-            ax.plot(
-                sorted(held_out),
-                [sum(map(metric, held_out[s])) / len(held_out[s]) for s in sorted(held_out)],
-                "o" if trained else "o:",
-                color=color,
-                markeredgecolor="black",
-                label=None if trained else f"{level} swaps, held-out only",
-            )
+            else:
+                ax.plot(*held_out_curve(rows["eval"][level], metric), ":", color=color, label=f"{level} swaps, held-out only")
         ax.set_title(title)
         ax.set_xlabel("Training step")
     for ax in axes[:-1]:
         ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
         ax.set_ylim(-0.03, 1.03)
     fig.legend(*axes[0].get_legend_handles_labels(), loc="outside lower center", ncol=4)
-    fig.suptitle(f"{model}: training samples (lines) and held-out puzzles (dots)")
+    fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}.png", dpi=150)
 
@@ -187,15 +184,10 @@ def plot_length_signal(run: str):
     by_level = [(newline, "Completions with a newline"), (tokens, "Completion length in tokens"), (accuracy, "Accuracy")]
     for ax, (metric, title) in zip(axes[1:], by_level):
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows | held_out)):
-            trained = level in rows
-            if trained:
+            if level in rows:
                 ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
-            steps = sorted(held_out[level])
-            ax.plot(
-                steps, [sum(map(metric, held_out[level][s])) / len(held_out[level][s]) for s in steps],
-                "o" if trained else "o:", color=color, markeredgecolor="black", markersize=5,
-                label=None if trained else f"{level} swaps, held-out only",
-            )
+            else:
+                ax.plot(*held_out_curve(held_out[level], metric), ":", color=color, label=f"{level} swaps, held-out only")
         ax.set_title(title)
     for ax in axes:
         ax.set_ylim(0)
