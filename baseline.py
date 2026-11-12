@@ -7,7 +7,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from tasks import STOP, Problem, dataset, parse_answer, reward
+from tasks import FORMATS, dataset
 
 # The system nvcc is too old to JIT-compile FlashInfer's sampler.
 os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
@@ -15,6 +15,7 @@ from vllm import LLM, SamplingParams  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", choices=["swaps", "math"], required=True)
+parser.add_argument("--format", choices=FORMATS, default="tags")
 parser.add_argument("--split", choices=["train", "eval"], default="train")
 parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
 parser.add_argument("--swaps", type=int, nargs="+", default=[2, 4, 8, 16, 32, 48])
@@ -26,35 +27,30 @@ parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--out", type=Path, default=Path("runs/baseline"))
 args = parser.parse_args()
 
-problems = [Problem(**row) for row in dataset(args.task, args.split, args.seed, args.problems, args.swaps)]
+fmt = FORMATS[args.format]
+problems = dataset(args.task, args.split, args.seed, args.problems, args.swaps, fmt)
 
 llm = LLM(args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed)
 sampling = SamplingParams(
-    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=[STOP], include_stop_str_in_output=True
+    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=[fmt.stop], include_stop_str_in_output=True
 )
 start = time.time()
-outputs = llm.generate([p.prompt for p in problems], sampling)
+outputs = llm.generate(problems["prompt"], sampling)
 elapsed = time.time() - start
 
 levels = defaultdict(lambda: defaultdict(float))
 args.out.mkdir(parents=True, exist_ok=True)
-with open(args.out / f"{args.task}_{args.model.split('/')[-1]}.jsonl", "w") as f:
+with open(args.out / f"{args.task}_{args.format}_{args.model.split('/')[-1]}.jsonl", "w") as f:
     for problem, output in zip(problems, outputs):
         completions = [c.text for c in output.outputs]
-        n_correct = sum(reward(c, problem.answer) for c in completions)
-        stats = levels[problem.level]
+        n_correct = sum(fmt.reward(c, problem["answer"]) for c in completions)
+        stats = levels[problem["level"]]
         stats["problems"] += 1
         stats["correct"] += n_correct
         stats["solved"] += n_correct > 0
-        stats["parsed"] += sum(parse_answer(c) is not None for c in completions)
+        stats["parsed"] += sum(fmt.parse_answer(c) is not None for c in completions)
         stats["tokens"] += sum(len(c.token_ids) for c in output.outputs)
-        f.write(json.dumps({
-            "level": problem.level,
-            "prompt": problem.prompt,
-            "answer": problem.answer,
-            "n_correct": n_correct,
-            "completions": completions,
-        }) + "\n")
+        f.write(json.dumps({**problem, "n_correct": n_correct, "completions": completions}) + "\n")
 
 for level, s in sorted(levels.items()):
     samples = s["problems"] * args.k

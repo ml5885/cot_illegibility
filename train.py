@@ -5,14 +5,14 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from tasks import STOP, dataset, reward
+from tasks import FORMATS, Format, dataset
 
 
-def logged_reward(path: Path, state: Callable[[], tuple[int, str]]):
+def logged_reward(path: Path, fmt: Format, state: Callable[[], tuple[int, str]]):
     """Reward on the final answer only; every sampled completion is appended to `path`."""
 
     def correct(prompts, completions, answer, level, **kwargs):
-        rewards = [reward(c, a) for c, a in zip(completions, answer)]
+        rewards = [fmt.reward(c, a) for c, a in zip(completions, answer)]
         step, split = state()
         with open(path, "a") as f:
             for row in zip(prompts, completions, answer, level, rewards):
@@ -43,7 +43,7 @@ def grpo_config(args: argparse.Namespace, out: Path):
         num_generations=args.generations,
         max_completion_length=args.max_tokens,
         temperature=args.temperature,
-        generation_kwargs={"stop": [STOP], "include_stop_str_in_output": True},
+        generation_kwargs={"stop": [FORMATS[args.format].stop], "include_stop_str_in_output": True},
         beta=args.beta,
         loss_type="dapo",
         use_vllm=True,
@@ -65,6 +65,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", choices=["swaps", "math"], required=True)
     parser.add_argument("--name", required=True)
+    parser.add_argument("--format", choices=FORMATS, default="tags", help="think/answer tags or plain text")
     parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
     parser.add_argument("--swaps", type=int, nargs="+", default=[4, 8, 16, 32])
     parser.add_argument("--max-steps", type=int, default=300)
@@ -90,6 +91,7 @@ def main():
     from peft import LoraConfig
     from trl import GRPOTrainer
 
+    fmt = FORMATS[args.format]
     out = Path("runs") / args.name
     out.mkdir(parents=True, exist_ok=True)
     (out / "args.json").write_text(json.dumps(vars(args), indent=2))
@@ -98,11 +100,12 @@ def main():
         model=args.model,
         reward_funcs=logged_reward(
             out / "rollouts.jsonl",
+            fmt,
             lambda: (trainer.state.global_step, "train" if trainer.model.training else "eval"),
         ),
         args=grpo_config(args, out),
-        train_dataset=dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps),
-        eval_dataset=dataset(args.task, "eval", args.seed, args.eval_problems, args.swaps),
+        train_dataset=dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps, fmt),
+        eval_dataset=dataset(args.task, "eval", args.seed, args.eval_problems, args.swaps, fmt),
         peft_config=LoraConfig(
             r=args.lora_rank, lora_alpha=2 * args.lora_rank, target_modules="all-linear", task_type="CAUSAL_LM"
         ),

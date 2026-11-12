@@ -2,13 +2,14 @@ import json
 
 import pytest
 
+from tasks import PLAIN, TAGS
 from train import grpo_config, logged_reward, parse_args
 
 
 def test_logged_reward_scores_and_records_every_completion(tmp_path):
     path = tmp_path / "rollouts.jsonl"
     state = [(3, "train")]
-    correct = logged_reward(path, lambda: state[0])
+    correct = logged_reward(path, TAGS, lambda: state[0])
     assert correct.__name__ == "correct"
 
     kwargs = dict(prompts=["p1", "p1", "p2"], answer=["C", "C", "34"], level=[4, 4, 0], completion_ids=[[1], [2], [3]])
@@ -35,6 +36,21 @@ def test_default_config_is_outcome_only_no_kl():
     c = config()
     assert c.beta == 0.0 and c.temperature == 1.0 and c.loss_type == "dapo"
     assert c.generation_kwargs == {"stop": ["</answer>"], "include_stop_str_in_output": True}
+
+
+def test_plain_format_changes_only_the_stop_string():
+    plain, tags = config("--format", "plain").to_dict(), config().to_dict()
+    assert plain.pop("generation_kwargs") == {"stop": ["\nProblem:"], "include_stop_str_in_output": True}
+    tags.pop("generation_kwargs")
+    assert plain == tags
+
+
+def test_logged_reward_uses_the_given_format(tmp_path):
+    kwargs = dict(prompts=["p"], answer=["C"], level=[1])
+    completions = ["x</think><answer>C</answer>"]
+    assert logged_reward(tmp_path / "a", TAGS, lambda: (0, "train"))(completions=completions, **kwargs) == [1.0]
+    assert logged_reward(tmp_path / "b", PLAIN, lambda: (0, "train"))(completions=completions, **kwargs) == [0.0]
+    assert logged_reward(tmp_path / "c", PLAIN, lambda: (0, "train"))(completions=["x\nAnswer: C"], **kwargs) == [1.0]
     assert c.use_vllm and c.vllm_mode == "colocate"
 
 

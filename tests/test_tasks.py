@@ -3,15 +3,15 @@ import re
 
 import pytest
 
-from tasks import MATH_EVAL, PROMPT, dataset, math_problems, math_rows, normalize, parse_answer, reasoning, reward, swap_problem, swap_problems
+from tasks import FORMATS, MATH_EVAL, PLAIN, TAGS, dataset, math_problems, math_rows, normalize, swap_problem, swap_problems
 
 SWAP = re.compile(r"Swap the contents of boxes (\w) and (\w)\.")
 
 
-def simulate(prompt: str) -> str:
+def simulate(question: str) -> str:
     """Independent solver: track every box's contents, then find the key."""
-    contents = {box: box == re.search(r"A key is in box (\w)\.", prompt).group(1) for box in "ABCDEF"}
-    for a, b in SWAP.findall(prompt):
+    contents = {box: box == re.search(r"A key is in box (\w)\.", question).group(1) for box in "ABCDEF"}
+    for a, b in SWAP.findall(question):
         contents[a], contents[b] = contents[b], contents[a]
     return next(box for box, has_key in contents.items() if has_key)
 
@@ -19,17 +19,16 @@ def simulate(prompt: str) -> str:
 @pytest.mark.parametrize("n_swaps", [0, 1, 2, 8, 40])
 def test_swap_answer_matches_independent_simulation(n_swaps):
     for problem in swap_problems(seed=n_swaps, n=200, n_swaps=n_swaps):
-        assert len(SWAP.findall(problem.prompt)) == n_swaps
-        assert problem.answer == simulate(problem.prompt)
+        assert len(SWAP.findall(problem.question)) == n_swaps
+        assert problem.answer == simulate(problem.question)
         assert problem.level == n_swaps
 
 
-def test_swap_prompt_format():
-    prompt = swap_problem(random.Random(0), 3).prompt
-    assert prompt.startswith("A conversation between User and Assistant.")
-    assert "User: There are 6 boxes labeled A to F. A key is in box " in prompt
-    assert prompt.endswith(" Which box contains the key? Assistant: <think>")
-    assert all(a != b for a, b in SWAP.findall(prompt))
+def test_swap_question_format():
+    question = swap_problem(random.Random(0), 3).question
+    assert question.startswith("There are 6 boxes labeled A to F. A key is in box ")
+    assert question.endswith(" Which box contains the key?")
+    assert all(a != b for a, b in SWAP.findall(question))
 
 
 def test_swap_problems_deterministic_and_seed_dependent():
@@ -57,17 +56,34 @@ def test_swap_answers_roughly_uniform():
         ("x <answer>C</answer>", None),
         ("x</think> so the answer is <answer>C</answer>", None),
         ("x</think> C", None),
+        ("x\nAnswer: C", None),
+        ("", None),
+    ],
+)
+def test_tags_parse_answer(completion, expected):
+    assert TAGS.parse_answer(completion) == expected
+
+
+@pytest.mark.parametrize(
+    "completion, expected",
+    [
+        ("A to C.\nAnswer: C", "C"),
+        ("Answer: C.", "C"),
+        ("Answer: C\n\n", "C"),
+        ("Answer: C\nProblem:", "C"),
+        ("Answer: C\nProblem: a new one\nAnswer: D", "D"),
+        ("1) no. 2) Answer: D", "D"),
+        ("so it is 34.\nAnswer: $34$", "34"),
+        ("Answer: $\\boxed{-3}$.", "-3"),
+        ("Answer: 5\nAnswer: 6", "6"),
+        ("Answer:C\nmore text", None),
+        ("x</think> <answer>C</answer>", None),
         ("the answer is C", None),
         ("", None),
     ],
 )
-def test_parse_answer(completion, expected):
-    assert parse_answer(completion) == expected
-
-
-def test_reasoning_is_the_text_before_the_closing_think_tag():
-    assert reasoning(" A to C. </think> <answer>C</answer>") == " A to C. "
-    assert reasoning("never closes") == "never closes"
+def test_plain_parse_answer(completion, expected):
+    assert PLAIN.parse_answer(completion) == expected
 
 
 def test_normalize_is_idempotent():
@@ -76,51 +92,77 @@ def test_normalize_is_idempotent():
 
 
 @pytest.mark.parametrize(
-    "completion, answer, expected",
+    "fmt, completion, answer, expected",
     [
-        ("x</think> <answer>C</answer>", "C", 1.0),
-        ("x</think> <answer>D</answer>", "C", 0.0),
-        ("x</think> <answer>box C</answer>", "C", 0.0),
-        ("C", "C", 0.0),
-        ("the answer is C</think>", "C", 0.0),
-        ("x</think> <answer>34</answer>", "34", 1.0),
-        ("x</think> <answer>340</answer>", "34", 0.0),
-        ("x</think> <answer>-3</answer>", "3", 0.0),
+        (TAGS, "x</think> <answer>C</answer>", "C", 1.0),
+        (TAGS, "x</think> <answer>D</answer>", "C", 0.0),
+        (TAGS, "x</think> <answer>box C</answer>", "C", 0.0),
+        (TAGS, "the answer is C</think>", "C", 0.0),
+        (TAGS, "x</think> <answer>340</answer>", "34", 0.0),
+        (TAGS, "x</think> <answer>-3</answer>", "3", 0.0),
+        (PLAIN, "Answer: C", "C", 1.0),
+        (PLAIN, "Answer: D", "C", 0.0),
+        (PLAIN, "Answer: C\nBut wait, maybe D.", "C", 0.0),
+        (PLAIN, "C", "C", 0.0),
+        (PLAIN, "Answer: 340", "34", 0.0),
     ],
 )
-def test_reward(completion, answer, expected):
-    assert reward(completion, answer) == expected
+def test_reward(fmt, completion, answer, expected):
+    assert fmt.reward(completion, answer) == expected
 
 
-def test_swap_dataset_splits_levels_evenly_and_differs_by_seed():
-    data = dataset("swaps", "train", seed=0, n=40, levels=[4, 8])
+@pytest.mark.parametrize("fmt", FORMATS.values())
+def test_template_has_one_slot_and_a_reachable_stop(fmt):
+    assert fmt.template.count("{}") == 1
+    assert fmt.template.format("Q?").count("Q?") == 1
+
+
+def test_tags_prompt_ends_inside_an_open_think_tag():
+    prompt = dataset("swaps", "train", 0, 2, [3], TAGS)["prompt"][0]
+    assert prompt.startswith("A conversation between User and Assistant.")
+    assert "User: There are 6 boxes" in prompt and prompt.endswith("Which box contains the key? Assistant: <think>")
+
+
+def test_plain_prompt_has_no_tags():
+    prompt = dataset("swaps", "train", 0, 2, [3], PLAIN)["prompt"][0]
+    assert "<think>" not in prompt and "<answer>" not in prompt
+    assert "\n\nProblem: There are 6 boxes" in prompt and prompt.endswith("Which box contains the key?\nReasoning:")
+
+
+def test_formats_share_the_same_problems():
+    tags, plain = (dataset("swaps", "train", 3, 40, [4, 8], fmt) for fmt in (TAGS, PLAIN))
+    assert tags["answer"] == plain["answer"] and tags["level"] == plain["level"]
+    assert [simulate(p) for p in tags["prompt"]] == [simulate(p) for p in plain["prompt"]] == tags["answer"]
+
+
+def test_swap_dataset_splits_levels_evenly_and_eval_differs_from_train():
+    data = dataset("swaps", "train", seed=0, n=40, levels=[4, 8], fmt=TAGS)
     assert data.column_names == ["prompt", "answer", "level"]
     assert data["level"] == [4] * 20 + [8] * 20
-    assert all(answer == simulate(prompt) for prompt, answer in zip(data["prompt"], data["answer"]))
-    assert not set(data["prompt"]) & set(dataset("swaps", "eval", seed=0, n=40, levels=[4, 8])["prompt"])
+    assert not set(data["prompt"]) & set(dataset("swaps", "eval", seed=0, n=40, levels=[4, 8], fmt=TAGS)["prompt"])
 
 
 def test_swap_levels_use_different_problems():
-    data = dataset("swaps", "train", seed=0, n=40, levels=[8, 8])
+    data = dataset("swaps", "train", seed=0, n=40, levels=[8, 8], fmt=TAGS)
     assert data["prompt"][:20] != data["prompt"][20:]
 
 
 def test_math_eval_is_fixed_and_disjoint_from_every_train_draw():
-    eval_prompts = {p.prompt for p in math_problems("eval", seed=0, n=MATH_EVAL)}
-    assert eval_prompts == {p.prompt for p in math_problems("eval", seed=7, n=MATH_EVAL)}
-    train_a = [p.prompt for p in math_problems("train", seed=0, n=12_000)]
-    train_b = [p.prompt for p in math_problems("train", seed=1, n=12_000)]
+    eval_questions = {p.question for p in math_problems("eval", seed=0, n=MATH_EVAL)}
+    assert eval_questions == {p.question for p in math_problems("eval", seed=7, n=MATH_EVAL)}
+    train_a = [p.question for p in math_problems("train", seed=0, n=20_000)]
+    train_b = [p.question for p in math_problems("train", seed=1, n=20_000)]
     assert train_a != train_b and set(train_a) == set(train_b)
     assert len(set(train_a)) == len(train_a) == len(math_rows()) - MATH_EVAL
-    assert len(eval_prompts) == MATH_EVAL
-    assert not eval_prompts & set(train_a) and not eval_prompts & set(train_b)
+    assert len(eval_questions) == MATH_EVAL
+    assert not eval_questions & set(train_a)
 
 
-def test_math_dataset_format():
-    data = dataset("math", "eval", seed=0, n=50, levels=[])
+@pytest.mark.parametrize("fmt, solve", [(TAGS, " so. </think> <answer> {} </answer>"), (PLAIN, " so.\nAnswer: {}")])
+def test_math_dataset_format(fmt, solve):
+    data = dataset("math", "eval", seed=0, n=50, levels=[], fmt=fmt)
     assert data.column_names == ["prompt", "answer", "level"]
-    head, tail = PROMPT.split("{}")
+    head, tail = fmt.template.split("{}")
     for prompt, answer in zip(data["prompt"], data["answer"]):
         assert prompt.startswith(head) and prompt.endswith(tail)
-        assert reward(f" so we get it. </think> <answer> {answer} </answer>", answer) == 1.0
-        assert reward(f"x</think> <answer>\\boxed{{{answer}}}</answer>", answer) == 1.0
+        assert fmt.reward(solve.format(answer), answer) == 1.0
