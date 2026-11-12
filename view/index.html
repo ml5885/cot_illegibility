@@ -74,6 +74,8 @@ nav .nav-btns span { color: #666; min-width: 230px; text-align: center; }
 .msg.prompt .msg-body { background: #f7f7f7; }
 .msg.reasoning .msg-header { background: #f0f0e0; color: #665; }
 .msg.reasoning .msg-body { background: #fffff0; }
+.msg.raw .msg-header { background: #e8e8e8; color: #555; }
+.msg.raw .msg-body { background: #fafafa; }
 .msg.final .msg-header { background: #e0ece0; color: #454; }
 .msg.final .msg-body { background: #f4faf4; }
 
@@ -141,7 +143,7 @@ mark.hit { background: #ffe066; color: inherit; }
 
   <div class="section">
     <h3>Reasoning and answer</h3>
-    <p>The completion is split for display only: the reasoning is everything before <code>&lt;/think&gt;</code> (tags format) or before the last line (plain format), and the answer is shown without its tags or "Answer:" label. Tick "Raw" (or press <b>r</b>) to see the completion exactly as sampled. Reward never looks at the reasoning.</p>
+    <p>The completion is split for display only: the reasoning is everything before <code>&lt;/think&gt;</code> (tags format) or before the last line (plain format), and the answer is shown without its tags or "Answer:" label. Tick "Raw" (or press <b>r</b>) for a single box with the prompt followed by the completion, exactly as the model saw and wrote it, with nothing split out or removed. Reward never looks at the reasoning.</p>
     <p><span class="nonascii">Shaded characters</span> are non-ASCII: other scripts, unusual symbols. Turn on "Show whitespace" to see newlines and repeated spaces.</p>
   </div>
 
@@ -188,7 +190,7 @@ mark.hit { background: #ffe066; color: inherit; }
     </select></label>
     <input type="search" id="search" placeholder="Search completions...">
     <label><input type="checkbox" id="fws"> Show whitespace</label>
-    <label title="Show the completion exactly as sampled, tags included ( r )"><input type="checkbox" id="fraw"> Raw</label>
+    <label title="Show the prompt and completion as one unsplit text, exactly as the model saw and wrote it ( r )"><input type="checkbox" id="fraw"> Raw</label>
     <label title="Plot accuracy and reasoning length across steps; click a point to open its completions ( p )"><input type="checkbox" id="fcurves"> Curves</label>
     <label title="Show this prompt's completions at every step ( c )"><input type="checkbox" id="facross"> Across steps</label>
     <button id="info">?</button>
@@ -211,7 +213,7 @@ let items = [];
 let filtered = [];
 let idx = 0;
 let searchTimeout = null;
-const collapsed = { prompt: true, reasoning: false, final: false };
+const collapsed = { prompt: true, reasoning: false, final: false, raw: false };
 
 const $ = id => document.getElementById(id);
 const params = () => new URLSearchParams(window.location.search);
@@ -281,7 +283,6 @@ function splitCompletion(prompt, text) {
 }
 
 function completionBlocks(it) {
-  if ($('fraw').checked) return block('reasoning', 'Completion (raw)', it.completion);
   const [reasoning, final] = splitCompletion(it.prompt, it.completion);
   return block('reasoning', 'Reasoning', reasoning) + (final ? block('final', 'Answer', final) : '');
 }
@@ -657,8 +658,7 @@ function render() {
     `<div><dt>Group</dt><dd>prompt ${it.groupId}, ${solved} of ${it.group.length} correct</dd></div>` +
     `</dl>` +
     `<div class="group">Group: ${chips}</div>` +
-    block('prompt', 'Prompt', it.prompt) +
-    completionBlocks(it);
+    ($('fraw').checked ? block('raw', 'Raw', it.prompt + it.completion) : block('prompt', 'Prompt', it.prompt) + completionBlocks(it));
 }
 
 // Jump to the first shown completion of the next or previous prompt.
