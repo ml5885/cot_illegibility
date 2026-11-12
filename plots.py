@@ -3,6 +3,7 @@
 uv run --with matplotlib plots.py [--start-box] RUN [RUN ...]   training curves per run
 uv run --with matplotlib plots.py --formats MODEL                 base model, think tags vs plain format
 uv run --with matplotlib plots.py --lengths RUN                   completion length by outcome, per level
+uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 """
 
 import json
@@ -74,7 +75,7 @@ def plot(run: str, start_box: bool):
         ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
         ax.set_ylim(-0.03, 1.03)
     axes[0].legend(loc="lower right", ncol=2)
-    fig.suptitle(f"{model} on the box-swap task. Lines: training samples ({WINDOW}-step mean). Dots: held-out puzzles.")
+    fig.suptitle(f"{model}: training samples (lines) and held-out puzzles (dots)")
     fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}.png", dpi=150)
@@ -102,13 +103,46 @@ def plot_lengths(run: str):
         ax.set_ylim(0)
     axes[0].set_ylabel("Completion length (characters)")
     axes[0].legend(loc="lower right")
-    fig.suptitle(
-        f"{model} on the box-swap task: completion length by outcome. "
-        f"Training samples, {BIN}-step bins; bins under {MIN_SAMPLES} samples omitted."
-    )
+    fig.suptitle(f"{model}: completion length by outcome")
     fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-lengths.png", dpi=150)
+
+
+def length_gaps(rows: list[dict]) -> list[float]:
+    """Correct minus incorrect mean length, for each puzzle whose samples were not all scored alike."""
+    puzzles = defaultdict(lambda: ([], []))
+    for row in rows:
+        puzzles[row["prompt"]][int(row["reward"])].append(length(row))
+    return [sum(right) / len(right) - sum(wrong) / len(wrong) for wrong, right in puzzles.values() if wrong and right]
+
+
+def plot_length_signal(run: str):
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    shares = [
+        (lambda row: float("\n" in row["completion"]), "Completions with a newline"),
+        (lambda row: float("</answer>" not in row["completion"]), "Completions with no closed answer tag"),
+    ]
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
+        starts = range(0, max(rows[level]) + 1, BIN)
+        gaps = [length_gaps([r for step in range(start, start + BIN) for r in rows[level].get(step, [])]) for start in starts]
+        means = [sum(g) / len(g) if len(g) >= MIN_SAMPLES else float("nan") for g in gaps]
+        axes[0].plot([s + BIN / 2 for s in starts], means, "o-", color=color, label=f"{level} swaps")
+        for ax, (metric, _) in zip(axes[1:], shares):
+            ax.plot(*smoothed(rows[level], metric), color=color)
+    axes[0].axhline(0, color="gray", linestyle=":", linewidth=1)
+    axes[0].set_title("Correct minus incorrect length (characters)")
+    axes[0].legend()
+    for ax, (_, title) in zip(axes[1:], shares):
+        ax.set_title(title)
+    for ax in axes:
+        ax.set_xlabel("Training step")
+    fig.suptitle(model)
+    fig.tight_layout()
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
 
 
 def reweighted(rows: list[dict], metric) -> float:
@@ -139,7 +173,7 @@ def plot_formats(model: str):
         ax.set_ylim(-0.03, 1.03)
     axes[0].axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
     axes[0].legend()
-    fig.suptitle(f"{model} before training on the box-swap task, with and without think tags. Dotted: guessing.")
+    fig.suptitle(f"{model} before training")
     fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/baseline-formats-{model}.png", dpi=150)
@@ -149,8 +183,8 @@ if __name__ == "__main__":
     if sys.argv[1] == "--formats":
         plot_formats(sys.argv[2])
         sys.exit()
-    if sys.argv[1] == "--lengths":
-        plot_lengths(sys.argv[2])
+    if sys.argv[1] in ("--lengths", "--length-signal"):
+        (plot_lengths if sys.argv[1] == "--lengths" else plot_length_signal)(sys.argv[2])
         sys.exit()
     runs = [arg for arg in sys.argv[1:] if arg != "--start-box"]
     for run in runs:
