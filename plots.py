@@ -35,7 +35,7 @@ plt.rcParams.update({
 
 WINDOW = 5
 BIN, MIN_SAMPLES = 20, 5
-OUTCOMES = [("Correct", "#2a78d6"), ("Wrong answer", "#eb6834"), ("No valid answer", "#1baf7a")]
+OUTCOMES = [("Correct", "#2a78d6"), ("Wrong answer", "#eb6834"), ("Invalid format", "#1baf7a")]
 START = re.compile(r"A key is in box (\w)\.")
 
 
@@ -99,7 +99,7 @@ def plot(run: str, start_box: bool):
 
 
 def outcome(row: dict) -> str:
-    return "Correct" if row["reward"] else "Wrong answer" if row["parsed"] is not None else "No valid answer"
+    return "Correct" if row["reward"] else "Wrong answer" if row["parsed"] is not None else "Invalid format"
 
 
 def newline(row: dict) -> float:
