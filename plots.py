@@ -104,12 +104,16 @@ def outcome(row: dict) -> str:
     return "Correct" if row["reward"] else "Wrong answer" if row["parsed"] is not None else "Wrong format"
 
 
+def tokens(row: dict) -> float:
+    return row["tokens"]
+
+
 def newline(row: dict) -> float:
     return float("\n" in row["completion"])
 
 
 BY_OUTCOME = {
-    "--lengths": (lambda row: row["tokens"], "Length (tokens)", "completion length by outcome", "{x:,.0f}", "lengths", True),
+    "--lengths": (tokens, "Length (tokens)", "completion length by outcome", "{x:,.0f}", "lengths", True),
     "--newlines": (newline, "With a newline", "completions with a newline, by outcome", "{x:.0%}", "newlines", False),
 }
 
@@ -171,21 +175,23 @@ def sides(rows: list[dict], metric) -> list[tuple[float, float]]:
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    fig, (by_outcome, by_level) = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, layout="constrained")
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey="row", layout="constrained")
     starts = range(0, max(max(by_step) for by_step in rows.values()) + 1, BIN)
     binned = lambda by_step: [[r for step in range(start, start + BIN) for r in by_step.get(step, [])] for start in starts]
     mean = lambda values: sum(values) / len(values) if len(values) >= MIN_SAMPLES else float("nan")
-    pooled = [sum((sides(b, newline) for b in bins), []) for bins in zip(*(binned(rows[level]) for level in rows))]
-    for side, (name, color) in [(1, OUTCOMES[0]), (0, ("Incorrect", OUTCOMES[1][1]))]:
-        by_outcome.plot([s + BIN / 2 for s in starts], [mean([pair[side] for pair in b]) for b in pooled], "o-", color=color, label=name)
-    for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
-        by_level.plot(*smoothed(rows[level], newline), color=color, label=f"{level} swaps")
-    by_outcome.set_title("Completions with a newline (incorrect vs. correct)")
-    by_level.set_title("Completions with a newline (by swap count)")
-    by_outcome.yaxis.set_major_formatter("{x:.0%}")
-    by_outcome.set_ylim(0, 0.9)
-    for ax in (by_outcome, by_level):
+    for (by_outcome, by_level), metric, title in zip(axes, [newline, tokens], ["Completions with a newline", "Completion length in tokens"]):
+        pooled = [sum((sides(b, metric) for b in bins), []) for bins in zip(*(binned(rows[level]) for level in rows))]
+        for side, (name, color) in [(1, OUTCOMES[0]), (0, ("Incorrect", OUTCOMES[1][1]))]:
+            by_outcome.plot([s + BIN / 2 for s in starts], [mean([pair[side] for pair in b]) for b in pooled], "o-", color=color, label=name)
+        for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
+            by_level.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
+        by_outcome.set_title(f"{title} (incorrect vs. correct)")
+        by_level.set_title(f"{title} (by swap count)")
+        by_outcome.set_ylim(0)
+    axes[0, 0].yaxis.set_major_formatter("{x:.0%}")
+    for ax in axes[0]:
         ax.legend(loc="upper right")
+    for ax in axes[1]:
         ax.set_xlabel("Training step")
         ax.set_xlim(-5, 205)
     fig.suptitle(model)
