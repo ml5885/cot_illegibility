@@ -5,6 +5,7 @@ uv run --with matplotlib plots.py --formats MODEL                 base model, th
 uv run --with matplotlib plots.py --lengths RUN                   completion length by outcome, per level
 uv run --with matplotlib plots.py --newlines RUN                  share of completions with a newline, by outcome
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
+uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 """
 
 import json
@@ -190,6 +191,47 @@ def plot_length_signal(run: str):
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
 
 
+def correlation(rows: list[dict], within_puzzle: bool) -> tuple[float, float]:
+    """Pearson r between completion length and reward, with its standard error."""
+    puzzles = defaultdict(list)
+    for row in rows:
+        puzzles[row["prompt"] if within_puzzle else None].append((length(row), row["reward"]))
+    pairs = [(x - sum(a for a, _ in g) / len(g), y - sum(b for _, b in g) / len(g)) for g in puzzles.values() for x, y in g]
+    if sum(row["reward"] == 0 for row in rows) < MIN_SAMPLES or sum(row["reward"] for row in rows) < MIN_SAMPLES:
+        return float("nan"), float("nan")
+    r = sum(x * y for x, y in pairs) / (sum(x * x for x, _ in pairs) * sum(y * y for _, y in pairs)) ** 0.5
+    return r, ((1 - r * r) / (len(pairs) - 2)) ** 0.5
+
+
+def plot_correlation(run: str):
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    panels = [
+        ("All samples", False, lambda row: True),
+        ("Within a puzzle", True, lambda row: True),
+        ("Within a puzzle, wrong format excluded", True, lambda row: outcome(row) != "Wrong format"),
+    ]
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), sharey=True, layout="constrained")
+    levels = sorted(rows)
+    for offset, color, level in zip(range(len(levels)), plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), levels):
+        starts = range(0, max(rows[level]) + 1, BIN)
+        bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
+        for ax, (title, within, keep) in zip(axes, panels):
+            r, error = zip(*(correlation([row for row in b if keep(row)], within) for b in bins))
+            xs = [s + BIN / 2 + 1.5 * (offset - (len(levels) - 1) / 2) for s in starts]
+            ax.errorbar(xs, r, yerr=error, fmt="o-", color=color, label=f"{level} swaps", capsize=2, elinewidth=1)
+            ax.set_title(title)
+    for ax in axes:
+        ax.axhline(0, color="gray", linestyle=":", linewidth=1)
+        ax.set_xlabel("Training step")
+        ax.set_xlim(-5, 205)
+    axes[0].set_ylabel("Correlation of length with correctness")
+    axes[0].legend(loc="lower left")
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-correlation.png", dpi=150)
+
+
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -231,8 +273,8 @@ if __name__ == "__main__":
     if sys.argv[1] in BY_OUTCOME:
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
-    if sys.argv[1] == "--length-signal":
-        plot_length_signal(sys.argv[2])
+    if sys.argv[1] in ("--length-signal", "--correlation"):
+        (plot_length_signal if sys.argv[1] == "--length-signal" else plot_correlation)(sys.argv[2])
         sys.exit()
     runs = [arg for arg in sys.argv[1:] if arg != "--start-box"]
     for run in runs:
