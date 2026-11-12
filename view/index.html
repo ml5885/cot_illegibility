@@ -18,7 +18,7 @@ nav label { color: #444; }
 nav button { font: inherit; padding: 3px 10px; cursor: pointer; border: 1px solid #ccc; background: #fff; }
 nav button:disabled { opacity: 0.3; cursor: default; }
 nav .nav-btns { display: flex; gap: 6px; align-items: center; margin-left: auto; }
-nav .nav-btns span { color: #666; min-width: 110px; text-align: center; }
+nav .nav-btns span { color: #666; min-width: 230px; text-align: center; }
 .good { color: #070; }
 .bad { color: #a00; }
 .warn { color: #a50; }
@@ -133,7 +133,7 @@ mark.hit { background: #ffe066; color: inherit; }
 
   <div class="section">
     <h3>Keys</h3>
-    <p><b>&larr; / &rarr;</b> or <b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group<br><b>c</b>: toggle across steps<br><b>r</b>: toggle raw completion</p>
+    <p><b>&larr; / &rarr;</b> (and the arrow buttons): previous / next prompt<br><b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group<br><b>c</b>: toggle across steps<br><b>r</b>: toggle raw completion</p>
   </div>
 
   <div class="section">
@@ -168,9 +168,9 @@ mark.hit { background: #ffe066; color: inherit; }
     <label title="Show this prompt's completions at every step ( c )"><input type="checkbox" id="facross"> Across steps</label>
     <button id="info">?</button>
     <div class="nav-btns">
-      <button id="prev">&larr;</button>
+      <button id="prev" title="Previous prompt ( &larr; )">&larr;</button>
       <span id="pageinfo"></span>
-      <button id="next">&rarr;</button>
+      <button id="next" title="Next prompt ( &rarr; )">&rarr;</button>
     </div>
   </nav>
   <div class="container" id="content"></div>
@@ -421,8 +421,10 @@ function block(kind, title, text) {
 
 function render() {
   $('stats').innerHTML = statsHTML();
-  $('prev').disabled = idx <= 0;
-  $('next').disabled = idx >= filtered.length - 1;
+  const shownPrompts = [...new Set(filtered.map(f => f.prompt))];
+  const promptAt = filtered.length ? shownPrompts.indexOf(filtered[idx].prompt) : 0;
+  $('prev').disabled = promptAt <= 0;
+  $('next').disabled = promptAt >= shownPrompts.length - 1;
   if (!filtered.length) {
     $('content').innerHTML = '<div class="empty">No completions match the filters.</div>';
     $('pageinfo').textContent = '0 of 0';
@@ -430,7 +432,7 @@ function render() {
   }
   const it = filtered[idx];
   setParams({ i: it.n });
-  $('pageinfo').textContent = `${idx + 1} of ${filtered.length}`;
+  $('pageinfo').textContent = `prompt ${promptAt + 1} of ${shownPrompts.length} · ${idx + 1} of ${filtered.length}`;
   if ($('facross').checked) return renderAcross(it);
   const [reasoning, final] = splitCompletion(it.prompt, it.completion);
   const { split, step } = parseFile($('ffile').value);
@@ -456,6 +458,17 @@ function render() {
     `<div class="group">Group: ${chips}</div>` +
     block('prompt', 'Prompt', it.prompt) +
     completionBlocks(it);
+}
+
+// Jump to the first shown completion of the next or previous prompt.
+function goPrompt(delta) {
+  if (!filtered.length) return;
+  const prompt = filtered[idx].prompt;
+  let at = idx;
+  while (filtered[at] && filtered[at].prompt === prompt) at += delta;
+  if (!filtered[at]) return;
+  while (delta < 0 && at > 0 && filtered[at - 1].prompt === filtered[at].prompt) at--;
+  idx = at; render(); window.scrollTo(0, 0);
 }
 
 function go(delta) {
@@ -490,8 +503,8 @@ $('fws').addEventListener('change', render);
 $('fraw').addEventListener('change', render);
 $('facross').addEventListener('change', () => { setParams({ across: $('facross').checked ? 1 : 0 }); render(); });
 $('search').addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => applyFilter(true), 300); });
-$('prev').addEventListener('click', () => go(-1));
-$('next').addEventListener('click', () => go(1));
+$('prev').addEventListener('click', () => goPrompt(-1));
+$('next').addEventListener('click', () => goPrompt(1));
 $('prevfile').addEventListener('click', () => goFile(-1));
 $('nextfile').addEventListener('click', () => goFile(1));
 $('info').addEventListener('click', toggleSidebar);
@@ -508,8 +521,10 @@ $('content').addEventListener('click', e => {
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.metaKey || e.ctrlKey) return;
   if (e.key === 'Escape' && $('sidebar').classList.contains('open')) toggleSidebar();
-  if (e.key === 'ArrowLeft' || e.key === 'j') go(-1);
-  if (e.key === 'ArrowRight' || e.key === 'k') go(1);
+  if (e.key === 'ArrowLeft') goPrompt(-1);
+  if (e.key === 'j') go(-1);
+  if (e.key === 'ArrowRight') goPrompt(1);
+  if (e.key === 'k') go(1);
   if (e.key === 'c') $('facross').click();
   if (e.key === 'r') $('fraw').click();
   if (e.key === '[') goFile(-1);
