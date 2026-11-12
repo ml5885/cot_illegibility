@@ -290,14 +290,14 @@ def plot_whitespace(run: str):
     has = lambda pattern: lambda text: float(re.search(pattern, text) is not None)
     panels = [
         ("Completions containing", "{x:.0%}", [
-            ("A newline", has(r"\n")), ("A blank line", has(r"\n\n")), ("Two spaces in a row", has("  ")), ("A tab", has(r"\t")),
+            ("A newline", has(r"\n")), ("A blank line", has(r"\n\n")), ("Two spaces in a row", has("  ")),
         ]),
         ("Newlines per completion", "{x:.0f}", [(None, lambda text: text.count("\n"))]),
         ("Whitespace as a share of characters", "{x:.0%}", [(None, lambda text: sum(map(str.isspace, text)) / len(text))]),
     ]
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
     for ax, (title, tick_format, series) in zip(axes, panels):
-        for (name, metric), color in zip(series, [c for _, c in OUTCOMES] + ["#eda100"]):
+        for (name, metric), color in zip(series, [c for _, c in OUTCOMES]):
             ax.plot(*smoothed(pooled, metric), color=color, label=name, linewidth=2)
         ax.set_title(title)
         ax.set_xlabel("Training step")
