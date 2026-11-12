@@ -497,10 +497,10 @@ def plot_templates(run: str):
     order, shares = common_templates(run, width)
     columns = 3
     rows = -(-len(order) // columns)
-    fig, axes = plt.subplots(rows, columns, figsize=(15, 2.5 * rows), sharex=True, sharey=True, layout="constrained")
+    fig, axes = plt.subplots(rows, columns, figsize=(15, 3.1 * rows), sharex=True, sharey=True, layout="constrained")
     for ax, template in zip(axes.flatten(), order):
         ax.plot([start + width / 2 for start in shares], [shares[start].get(template, 0) for start in shares], color=PALETTE[0], linewidth=2)
-        ax.set_title("\n".join(textwrap.wrap(template, 52)), fontsize=10)
+        ax.set_title("\n".join(textwrap.wrap(template, 40)), fontsize=13)
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_ylim(0, 1.03)
     for ax in axes.flatten()[len(order) :]:
