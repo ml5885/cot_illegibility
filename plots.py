@@ -11,6 +11,8 @@ uv run --with matplotlib plots.py --blank-lines RUN               where the firs
 uv run --with matplotlib plots.py --groups RUN                    rewarded vs unrewarded samples of the same puzzle
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
 uv run --with matplotlib plots.py --tracking RUN                  blank lines against per-swap tracking, by opening sentence
+uv run --with matplotlib plots.py --openers RUN                   the same, per opening sentence and swap count
+uv run --with matplotlib plots.py --styles RUN                    blank-line vs plain responses to the same puzzle
 """
 
 import json
@@ -406,20 +408,44 @@ def swap_mentions(reasoning: str, swaps: list[tuple[str, str]]) -> list[re.Match
     return found
 
 
-def tracking(row: dict) -> list[str]:
-    """For each swap: whether the last box named in its step is where the key really is."""
+def swap_steps(row: dict) -> list[tuple[str, bool]]:
+    """For each swap: whether the last box named in its step is where the key really is, and whether the step
+    states that location in more than one sentence. Whitespace is normalized first."""
     swaps, after, _ = puzzle(row)
-    reasoning = row["completion"].partition("</think>")[0]
+    reasoning = " ".join(row["completion"].partition("</think>")[0].split())
     mentions = swap_mentions(reasoning, swaps)
     starts = [m.start() for m in mentions if m] + [len(reasoning)]
-    outcomes = []
+    steps = []
     for mention, box in zip(mentions, after):
         if not mention:
-            outcomes.append("skipped")
+            steps.append(("skipped", False))
             continue
-        named = re.findall(r"\b[A-F]\b", reasoning[mention.end() : next(s for s in starts if s > mention.start())])
-        outcomes.append("unstated" if not named else "right" if named[-1] == box else "wrong")
-    return outcomes
+        sentences = reasoning[mention.end() : next(s for s in starts if s > mention.start())].split(". ")
+        named = [re.findall(r"\b[A-F]\b", sentence) for sentence in sentences]
+        last = [letters[-1] for letters in named if letters]
+        outcome = "unstated" if not last else "right" if last[-1] == box else "wrong"
+        restated = sum("key" in sentence and letters[-1:] == last[-1:] for sentence, letters in zip(sentences, named)) > 1
+        steps.append((outcome, bool(last) and restated))
+    return steps
+
+
+def tracking(row: dict) -> list[str]:
+    return [outcome for outcome, _ in swap_steps(row)]
+
+
+def right_share(rows: list[dict]) -> float:
+    steps = [step for row in rows for step in swap_steps(row)]
+    return sum(outcome == "right" for outcome, _ in steps) / len(steps)
+
+
+def restated_share(rows: list[dict]) -> float:
+    steps = [step for row in rows for step in swap_steps(row)]
+    return sum(restated for _, restated in steps) / len(steps)
+
+
+def blank_after_opening(row: dict) -> float:
+    rest = row["completion"].strip()[len(opening(row)) :]
+    return float("\n\n" in rest[: len(rest) - len(rest.lstrip())])
 
 
 def trace_parts(row: dict, count) -> dict:
@@ -530,6 +556,84 @@ def plot_traces(run: str):
     fig.savefig(f"figures/{run}-traces.png", dpi=150)
 
 
+def plot_openers(run: str):
+    """Observational: each line follows the responses that happened to start with that sentence."""
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    width, enough = 10, 10
+    counts = defaultdict(int)
+    for by_step in rows.values():
+        for step, step_rows in by_step.items():
+            if 10 <= step < 70:
+                for row in step_rows:
+                    counts[opening(row)] += 1
+    openers = sorted(counts, key=counts.get, reverse=True)[:4]
+    panels = [
+        ("Opening followed\nby a blank line", lambda rs: sum(map(blank_after_opening, rs)) / len(rs), "{x:.0%}"),
+        ("Swaps followed by the\nright key location", right_share, "{x:.0%}"),
+        ("Swaps whose step\nrestates the location", restated_share, "{x:.0%}"),
+        ("Responses\nper 10 steps", len, "{x:.0f}"),
+    ]
+    levels = sorted(rows)
+    fig, axes = plt.subplots(len(panels), len(levels), figsize=(4 * len(levels), 10), sharex=True, sharey="row", layout="constrained")
+    for column, level in zip(axes.T, levels):
+        for name, color in zip(openers, PALETTE):
+            bins = defaultdict(list)
+            for step, step_rows in rows[level].items():
+                bins[step // width * width] += [r for r in step_rows if opening(r) == name]
+            bins = dict(sorted(bins.items()))
+            for ax, (_, metric, _) in zip(column, panels):
+                kept = {start: rs for start, rs in bins.items() if metric is len or len(rs) >= enough}
+                ax.plot([s + width / 2 for s in kept], [metric(rs) for rs in kept.values()], "o-", color=color, label=name, markersize=3)
+        column[0].set_title(f"{level} swaps")
+        column[-1].set_xlabel("Training step")
+    for ax, (title, _, tick_format) in zip(axes[:, 0], panels):
+        ax.set_ylabel(title)
+        ax.yaxis.set_major_formatter(tick_format)
+        ax.set_ylim(0)
+    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=2, fontsize=10, title="Opening sentence")
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-openers.png", dpi=150)
+
+
+def plot_styles(run: str):
+    """Blank-line minus plain responses within a rollout group that has both, one observation per group."""
+    rows = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    width = 10
+    groups = defaultdict(list)
+    for by_step in rows.values():
+        for step, step_rows in by_step.items():
+            for row in step_rows:
+                groups[step, row["prompt"]].append(row)
+    subsets = [("All responses", lambda r: True), ("Rewarded responses only", lambda r: r["reward"] == 1)]
+    metrics = [("Swaps followed by the right key location", right_share), ("Swaps whose step restates the location", restated_share)]
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey="row", layout="constrained")
+    for column, (subset, keep) in zip(axes.T, subsets):
+        for ax, (title, metric) in zip(column, metrics):
+            gaps = defaultdict(list)
+            for (step, _), group in groups.items():
+                blank = [r for r in group if keep(r) and "\n\n" in r["completion"]]
+                plain = [r for r in group if keep(r) and "\n\n" not in r["completion"]]
+                if blank and plain:
+                    gaps[step // width * width].append(metric(blank) - metric(plain))
+            gaps = {start: g for start, g in sorted(gaps.items()) if len(g) >= MIN_SAMPLES}
+            xs = [start + width / 2 for start in gaps]
+            means = [sum(g) / len(g) for g in gaps.values()]
+            errors = [(sum((x - m) ** 2 for x in g) / (len(g) - 1) / len(g)) ** 0.5 for g, m in zip(gaps.values(), means)]
+            ax.errorbar(xs, means, yerr=errors, fmt="o-", color=PALETTE[0], capsize=3)
+            for x, m, e, g in zip(xs, means, errors, gaps.values()):
+                ax.annotate(len(g), (x, m + e), xytext=(0, 4), textcoords="offset points", ha="center", fontsize=9)
+            ax.axhline(0, color="gray", linestyle=":", linewidth=1)
+            ax.set_title(f"{subset}\n{title}" if ax is column[0] else title)
+            ax.yaxis.set_major_formatter("{x:+.0%}")
+        column[-1].set_xlabel("Training step")
+    fig.suptitle(f"{model}: blank-line minus plain responses to the same puzzle")
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-styles.png", dpi=150)
+
+
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -574,6 +678,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
         "--blank-lines": plot_blank_lines, "--groups": plot_groups, "--traces": plot_traces, "--tracking": plot_tracking,
+        "--openers": plot_openers, "--styles": plot_styles,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
