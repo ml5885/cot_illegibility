@@ -70,7 +70,7 @@ def plot(run: str, start_box: bool):
     for ax in axes[:-1]:
         ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
         ax.set_ylim(-0.03, 1.03)
-    axes[-1].legend()
+    axes[0].legend(loc="lower right", ncol=2)
     fig.suptitle(f"{model} on the box-swap task. Lines: training samples ({WINDOW}-step mean). Dots: held-out puzzles.")
     fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
