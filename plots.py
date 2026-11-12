@@ -273,7 +273,7 @@ def plot_token_limit(run: str):
     for ax in axes[-1]:
         ax.set_xlabel("Training step")
     fig.legend(*axes[1, 0].get_legend_handles_labels(), loc="outside lower center", ncol=4)
-    fig.suptitle(f"{args['model'].split('/')[-1]}: completion length against the {limit}-token limit")
+    fig.suptitle(f"{args['model'].split('/')[-1]}: completion length and the token limit")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-token-limit.png", dpi=150)
 
@@ -459,7 +459,7 @@ def plot_traces(run: str):
     parts.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=10)
     for ax in (per_swap, parts):
         ax.set_xlabel("Training step")
-    fig.suptitle(f"{args['model'].split('/')[-1]}: correct {level}-swap traces on {len(solved)} held-out puzzles")
+    fig.suptitle(f"{args['model'].split('/')[-1]}: correct {level}-swap responses")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-traces.png", dpi=150)
 
@@ -534,7 +534,7 @@ def plot_errors(run: str):
     for ax in axes[:, 0]:
         ax.set_ylabel("Share of responses")
     fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
-    fig.suptitle(f"{args['model'].split('/')[-1]}: why responses score 0")
+    fig.suptitle(f"{args['model'].split('/')[-1]}: error analysis")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-errors.png", dpi=150)
 
