@@ -11,6 +11,7 @@ uv run --with matplotlib plots.py --blank-lines RUN               where the firs
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
 uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and standalone location statements, by swap count
 uv run --with matplotlib plots.py --coverage RUN                  how many of a puzzle's swaps the reasoning writes out
+uv run --with matplotlib plots.py --okay RUN                      responses that open with "Okay"
 uv run --with matplotlib plots.py --errors RUN                    what went wrong in the responses that scored 0
 uv run --with matplotlib plots.py --error-shares RUN              the same, as a share of the wrong responses
 """
@@ -495,6 +496,43 @@ def plot_coverage(run: str):
     fig.savefig(f"figures/{run}-coverage.png", dpi=150)
 
 
+def opens_with_okay(row: dict) -> float:
+    return float(row["completion"].lstrip().startswith("Okay"))
+
+
+def plot_okay(run: str):
+    data = load(run)
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    fig, (by_level, by_outcome, accuracies) = plt.subplots(1, 3, figsize=(16, 4.4), sharey=True, layout="constrained")
+    for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(data["train"] | data["eval"])):
+        if level in data["train"]:
+            by_level.plot(*smoothed(data["train"][level], opens_with_okay), color=color, label=f"{level} swaps")
+        else:
+            by_level.plot(*held_out_curve(data["eval"][level], opens_with_okay), color=color, label=f"{level} swaps, held-out only")
+    bins = defaultdict(list)
+    for by_step in data["train"].values():
+        for step, rows in by_step.items():
+            bins[step // BIN * BIN] += rows
+    bins = dict(sorted(bins.items()))
+    centers = [start + BIN / 2 for start in bins]
+    mean = lambda values: sum(values) / len(values) if len(values) >= MIN_SAMPLES else float("nan")
+    for name, color, reward in [("Correct responses", OUTCOMES[0][1], 1), ("Incorrect responses", OUTCOMES[1][1], 0)]:
+        by_outcome.plot(centers, [mean([opens_with_okay(r) for r in rs if r["reward"] == reward]) for rs in bins.values()], "o-", color=color, label=name)
+    for name, color, okay in [('Opens with "Okay"', PALETTE[2], 1), ("Opens with anything else", "0.45", 0)]:
+        accuracies.plot(centers, [mean([r["reward"] for r in rs if opens_with_okay(r) == okay]) for rs in bins.values()], "o-", color=color, label=name)
+    by_level.set_title('Responses that open with "Okay"')
+    by_outcome.set_title('Open with "Okay", by outcome')
+    accuracies.set_title("Accuracy, by opening")
+    for ax in (by_level, by_outcome, accuracies):
+        ax.set_xlabel("Training step")
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 1.03)
+        ax.legend(loc="best")
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-okay.png", dpi=150)
+
+
 ERRORS = [
     ("Cut off at the token limit", "#eda100"),
     ("Answer malformed", "0.6"),
@@ -596,7 +634,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
         "--blank-lines": plot_blank_lines, "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
-        "--errors": plot_errors, "--error-shares": lambda run: plot_errors(run, of_wrong=True),
+        "--okay": plot_okay, "--errors": plot_errors, "--error-shares": lambda run: plot_errors(run, of_wrong=True),
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
