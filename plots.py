@@ -156,38 +156,36 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
     fig.savefig(f"figures/{run}-{suffix}.png", dpi=150)
 
 
-def length_gaps(rows: list[dict]) -> list[float]:
-    """Correct minus incorrect mean length, for each puzzle whose samples were not all scored alike."""
+def gaps(rows: list[dict], metric) -> list[float]:
+    """Correct minus incorrect mean of the metric, for each puzzle whose samples were not all scored alike."""
     puzzles = defaultdict(lambda: ([], []))
     for row in rows:
-        puzzles[row["prompt"]][int(row["reward"])].append(length(row))
+        puzzles[row["prompt"]][int(row["reward"])].append(metric(row))
     return [sum(right) / len(right) - sum(wrong) / len(wrong) for wrong, right in puzzles.values() if wrong and right]
 
 
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    shares = [
-        (newline, "Completions with a newline"),
-        (lambda row: float("</answer>" not in row["completion"]), "Completions with no closed answer tag"),
-    ]
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    margins = [(length, "Length in characters, correct minus incorrect"), (newline, "Newline use, correct minus incorrect")]
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
         starts = range(0, max(rows[level]) + 1, BIN)
-        gaps = [length_gaps([r for step in range(start, start + BIN) for r in rows[level].get(step, [])]) for start in starts]
-        means = [sum(g) / len(g) if len(g) >= MIN_SAMPLES else float("nan") for g in gaps]
-        axes[0].plot([s + BIN / 2 for s in starts], means, "o-", color=color, label=f"{level} swaps")
-        for ax, (metric, _) in zip(axes[1:], shares):
-            ax.plot(*smoothed(rows[level], metric), color=color)
-    axes[0].axhline(0, color="gray", linestyle=":", linewidth=1)
-    axes[0].set_title("Correct minus incorrect length (characters)")
-    axes[1].legend(*axes[0].get_legend_handles_labels(), loc="upper right")
-    for ax, (_, title) in zip(axes[1:], shares):
-        ax.set_title(title)
+        bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
+        for ax, (metric, title) in zip(axes, margins):
+            means = [sum(g) / len(g) if len(g := gaps(b, metric)) >= MIN_SAMPLES else float("nan") for b in bins]
+            ax.plot([s + BIN / 2 for s in starts], means, "o-", color=color, label=f"{level} swaps")
+            ax.axhline(0, color="gray", linestyle=":", linewidth=1)
+            ax.set_title(title)
+        axes[2].plot(*smoothed(rows[level], newline), color=color)
+    axes[1].yaxis.set_major_formatter("{x:+.0%}")
+    axes[2].yaxis.set_major_formatter("{x:.0%}")
+    axes[2].set_title("Completions with a newline")
+    axes[2].legend(*axes[0].get_legend_handles_labels(), loc="upper right")
     for ax in axes:
         ax.set_xlabel("Training step")
+        ax.set_xlim(-5, 205)
     fig.suptitle(model)
-    fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
 
