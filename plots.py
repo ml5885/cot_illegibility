@@ -16,13 +16,13 @@ import matplotlib.pyplot as plt
 
 plt.rcParams.update({
     "font.family": "serif",
-    "font.size": 11,
-    "axes.titlesize": 11,
-    "axes.labelsize": 11,
-    "xtick.labelsize": 10,
-    "ytick.labelsize": 10,
-    "legend.fontsize": 10,
-    "figure.titlesize": 12,
+    "font.size": 13,
+    "axes.titlesize": 13,
+    "axes.labelsize": 13,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 12,
+    "figure.titlesize": 14,
     "axes.spines.top": False,
     "axes.spines.right": False,
     "legend.frameon": False,
@@ -100,10 +100,13 @@ def outcome(row: dict) -> str:
 def plot_lengths(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    grid_rows = (len(rows) + 1) // 2
     fig, axes = plt.subplots(
-        2, len(rows), figsize=(3.6 * len(rows), 4.6), sharex=True, sharey="row", height_ratios=[1, 3], layout="constrained"
+        2 * grid_rows, 2, figsize=(10, 4.4 * grid_rows), sharex=True, height_ratios=[1, 3] * grid_rows, layout="constrained"
     )
-    for (top, ax), level in zip(axes.T, sorted(rows)):
+    panels = [axes[2 * (i // 2) + 1, i % 2] for i in range(len(rows))]
+    for i, (ax, level) in enumerate(zip(panels, sorted(rows))):
+        top = axes[2 * (i // 2), i % 2]
         starts = range(0, max(rows[level]) + 1, BIN)
         centers = [s + BIN / 2 for s in starts]
         bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
@@ -114,20 +117,25 @@ def plot_lengths(run: str):
             top.bar(centers, share, BIN - 3, bottom=floor, color=color)
             floor = [f + s for f, s in zip(floor, share)]
             means = [sum(v) / len(v) if len(v) >= MIN_SAMPLES else float("nan") for v in lengths]
-            ax.plot(centers, means, "o-", color=color, label=name, linewidth=1.8, markersize=5)
+            ax.plot(centers, means, "o-", color=color, label=name, linewidth=2, markersize=6)
         top.set_title(f"{level} swaps")
         top.set_ylim(0, 1)
-        top.set_yticks([0, 1], ["0%", "100%"])
+        top.set_yticks([0, 1], ["0%", "100%"] if i % 2 == 0 else ["", ""])
         top.spines["left"].set_visible(False)
         top.tick_params(length=0)
-        ax.set_xlabel("Training step")
+        ax.sharey(panels[i - i % 2])
+        ax.tick_params(labelbottom=True, labelleft=i % 2 == 0)
         ax.grid(axis="y", color="0.9", linewidth=0.8)
         ax.set_axisbelow(True)
-    axes[0, 0].set_ylabel("Share")
-    axes[1, 0].set_ylabel("Length (characters)")
-    axes[1, 0].set_ylim(0)
-    axes[1, 0].yaxis.set_major_formatter("{x:,.0f}")
-    fig.legend(*axes[1, 0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
+        if i % 2 == 0:
+            top.set_ylabel("Share")
+            ax.set_ylabel("Length (characters)")
+    for ax in panels[-2:]:
+        ax.set_xlabel("Training step")
+    for left, right in zip(panels[::2], panels[1::2]):
+        left.set_ylim(0, 1.05 * max(left.dataLim.y1, right.dataLim.y1))
+        left.yaxis.set_major_formatter("{x:,.0f}")
+    fig.legend(*panels[0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
     fig.suptitle(f"{model}: completion length by outcome")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-lengths.png", dpi=150)
