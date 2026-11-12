@@ -11,6 +11,7 @@ uv run --with matplotlib plots.py --blank-lines RUN               where the firs
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
 uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and standalone location statements, by swap count
 uv run --with matplotlib plots.py --coverage RUN                  how many of a puzzle's swaps the reasoning writes out
+uv run --with matplotlib plots.py --errors RUN                    what went wrong in the responses that scored 0
 """
 
 import json
@@ -488,6 +489,56 @@ def plot_coverage(run: str):
     fig.savefig(f"figures/{run}-coverage.png", dpi=150)
 
 
+ERRORS = [
+    ("Cut off at the token limit", "#eda100"),
+    ("Answer malformed", "0.6"),
+    ("Left out a swap", "#2a78d6"),
+    ("Tracked a swap wrongly", "#eb6834"),
+    ("Reasoning right, answer differs", "#e87ba4"),
+    ("Key location not stated", "#1baf7a"),
+]
+
+
+def error_cause(row: dict, max_tokens: int) -> str:
+    """The first of these that applies to a response that scored 0."""
+    outcomes = tracking(row)
+    if row["parsed"] is None:
+        return ERRORS[0][0] if row["tokens"] >= max_tokens - 2 else ERRORS[1][0]
+    for outcome, cause in [("skipped", ERRORS[2][0]), ("wrong", ERRORS[3][0])]:
+        if outcome in outcomes:
+            return cause
+    return ERRORS[4][0] if set(outcomes) == {"right"} else ERRORS[5][0]
+
+
+def plot_errors(run: str):
+    data = load(run)
+    args = json.loads(Path("runs", run, "args.json").read_text())
+    levels = sorted(data["train"] | data["eval"])
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey=True, layout="constrained")
+    for ax, level in zip(axes.flatten(), levels):
+        trained = level in data["train"]
+        bins = defaultdict(list)
+        for step, rows in data["train" if trained else "eval"][level].items():
+            bins[step // BIN * BIN + BIN / 2 if trained else step] += rows
+        bins = dict(sorted(bins.items()))
+        causes = [[error_cause(r, args["max_tokens"]) for r in rs if not r["reward"]] for rs in bins.values()]
+        floor = [0.0] * len(bins)
+        for name, color in ERRORS:
+            share = [c.count(name) / len(rs) for c, rs in zip(causes, bins.values())]
+            ax.bar(list(bins), share, (BIN if trained else 10) - 3, bottom=floor, color=color, label=name)
+            floor = [f + v for f, v in zip(floor, share)]
+        ax.set_title(f"{level} swaps" if trained else f"{level} swaps, held-out only")
+        ax.yaxis.set_major_formatter("{x:.0%}")
+    for ax in axes[1]:
+        ax.set_xlabel("Training step")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Share of responses")
+    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
+    fig.suptitle(f"{args['model'].split('/')[-1]}: why responses score 0")
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-errors.png", dpi=150)
+
+
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -532,6 +583,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
         "--blank-lines": plot_blank_lines, "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
+        "--errors": plot_errors,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
