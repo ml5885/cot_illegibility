@@ -210,3 +210,9 @@ def test_reasoning_is_everything_before_the_answer(fmt, completion, reasoning):
 def test_skipping_the_reasoning_still_parses(fmt):
     completion = fmt.skip + " E " + (fmt.stop if fmt is TAGS else "")
     assert fmt.parse_answer(completion) == "E" and fmt.reasoning(completion) == ""
+
+
+def test_math_prompts_have_their_latex_commands_restored():
+    questions = [question for question, _ in math_rows()]
+    assert not any("\x0crac" in q or "\x08oxed" in q for q in questions)
+    assert sum("\\frac" in q for q in questions) > 1000

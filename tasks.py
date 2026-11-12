@@ -97,7 +97,9 @@ def math_rows() -> list[tuple[str, str]]:
     """Unique (problem, answer) pairs; problems that appear with conflicting answers are dropped."""
     answers = defaultdict(set)
     for row in load_dataset("allenai/Dolci-RL-Zero-Math-7B", split="train"):
-        answers[row["prompt"].strip()].add(row["ground_truth"])
+        # In a few hundred prompts "\frac" and "\boxed" were stored as a form feed or backspace plus the rest.
+        question = row["prompt"].strip().replace("\x0crac", "\\frac").replace("\x08oxed", "\\boxed")
+        answers[question].add(row["ground_truth"])
     return [(question, a.pop()) for question, a in answers.items() if len(a) == 1]
 
 
