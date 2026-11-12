@@ -7,7 +7,6 @@ uv run --with matplotlib plots.py --newlines RUN                  share of compl
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
-uv run --with matplotlib plots.py --whitespace RUN                kinds of whitespace in completions
 """
 
 import json
@@ -165,15 +164,25 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), layout="constrained")
-    for ax, metric, title in zip(axes, [newline, tokens], ["Completions with a newline", "Completion length in tokens"]):
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
+    pooled = defaultdict(list)
+    for by_step in rows.values():
+        for step, step_rows in by_step.items():
+            pooled[step] += step_rows
+    kinds = [("A newline", "\n"), ("A blank line", "\n\n"), ("Two spaces in a row", "  ")]
+    for (name, text), (_, color) in zip(kinds, OUTCOMES):
+        axes[0].plot(*smoothed(pooled, lambda row: float(text in row["completion"])), color=color, label=name, linewidth=2)
+    axes[0].set_title("Completions containing")
+    for ax, metric, title in zip(axes[1:], [newline, tokens], ["Completions with a newline", "Completion length in tokens"]):
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
             ax.plot(*smoothed(rows[level], metric), color=color, label=f"{level} swaps")
         ax.set_title(title)
+    for ax in axes:
         ax.set_xlabel("Training step")
         ax.set_ylim(0)
-    axes[0].yaxis.set_major_formatter("{x:.0%}")
-    axes[0].legend(loc="upper right")
+    for ax in axes[:2]:
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.legend(loc="upper right")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
@@ -258,35 +267,6 @@ def plot_token_limit(run: str):
     fig.savefig(f"figures/{run}-token-limit.png", dpi=150)
 
 
-def plot_whitespace(run: str):
-    rows = load(run)["train"]
-    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    pooled = defaultdict(list)
-    for by_step in rows.values():
-        for step, step_rows in by_step.items():
-            pooled[step] += [row["completion"] for row in step_rows if row["completion"]]
-    has = lambda pattern: lambda text: float(re.search(pattern, text) is not None)
-    panels = [
-        ("Completions containing", "{x:.0%}", [
-            ("A newline", has(r"\n")), ("A blank line", has(r"\n\n")), ("Two spaces in a row", has("  ")),
-        ]),
-        ("Whitespace as a share of characters", "{x:.0%}", [(None, lambda text: sum(map(str.isspace, text)) / len(text))]),
-    ]
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), layout="constrained")
-    for ax, (title, tick_format, series) in zip(axes, panels):
-        for (name, metric), color in zip(series, [c for _, c in OUTCOMES]):
-            ax.plot(*smoothed(pooled, metric), color=color, label=name, linewidth=2)
-        ax.set_title(title)
-        ax.set_xlabel("Training step")
-        ax.set_ylim(0)
-        ax.yaxis.set_major_formatter(tick_format)
-    axes[0].legend(loc="upper right")
-    axes[1].set_ylim(0, 0.3)
-    fig.suptitle(model)
-    Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-whitespace.png", dpi=150)
-
-
 def reweighted(rows: list[dict], metric) -> float:
     """Baselines were sampled on puzzles where the key often stays put. The current puzzle is that
     distribution conditioned so the key moves 5 times in 6, so weighting the two cases gives its accuracy."""
@@ -329,8 +309,7 @@ if __name__ == "__main__":
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
     OTHER = {
-        "--length-signal": plot_length_signal, "--correlation": plot_correlation,
-        "--token-limit": plot_token_limit, "--whitespace": plot_whitespace,
+        "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
