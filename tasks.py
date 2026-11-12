@@ -7,15 +7,16 @@ from dataclasses import dataclass
 from datasets import Dataset, load_dataset
 
 BOXED = re.compile(r"\\boxed\{(.*)\}")
-TAGGED_ANSWER = re.compile(r"</think>\s*<answer>(.*?)</answer>", re.DOTALL)
+UNTAGGED = r"((?:(?!</?think>|</?answer>).)*)"
+TAGGED_ANSWER = re.compile(rf"{UNTAGGED}</think>\s*<answer>{UNTAGGED}</answer>\s*", re.DOTALL)
 PLAIN_ANSWER = re.compile(r"Answer:\s*(.+)")
 MATH_EVAL = 500
 
 
 def split_tags(completion: str) -> tuple[str, str | None]:
-    """The completion continues an open <think>, so it must close it and then give a closed <answer>."""
-    match = TAGGED_ANSWER.search(completion)
-    return (completion[: match.start()], match.group(1)) if match else (completion, None)
+    """The completion continues an open <think>: it must be reasoning, one </think>, one closed <answer>, no other tags."""
+    match = TAGGED_ANSWER.fullmatch(completion)
+    return match.groups() if match else (completion, None)
 
 
 def split_plain(completion: str) -> tuple[str, str | None]:
