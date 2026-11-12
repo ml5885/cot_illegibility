@@ -5,9 +5,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from tasks import dataset, reward
-
-STOP = ["\nProblem:"]
+from tasks import STOP, dataset, reward
 
 
 def logged_reward(path: Path, state: Callable[[], tuple[int, str]]):
@@ -27,7 +25,43 @@ def logged_reward(path: Path, state: Callable[[], tuple[int, str]]):
     return correct
 
 
-def main():
+def grpo_config(args: argparse.Namespace, out: Path):
+    from trl import GRPOConfig
+
+    completions_per_step = args.prompts_per_step * args.generations
+    assert completions_per_step % args.batch_size == 0 and args.batch_size % args.generations == 0
+    return GRPOConfig(
+        output_dir=str(out),
+        run_name=args.name,
+        seed=args.seed,
+        max_steps=args.max_steps,
+        learning_rate=args.lr,
+        lr_scheduler_type="constant",
+        per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=completions_per_step // args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        num_generations=args.generations,
+        max_completion_length=args.max_tokens,
+        temperature=args.temperature,
+        generation_kwargs={"stop": [STOP]},
+        beta=args.beta,
+        loss_type="dapo",
+        use_vllm=True,
+        vllm_mode="colocate",
+        vllm_gpu_memory_utilization=args.vllm_memory,
+        bf16=True,
+        gradient_checkpointing=True,
+        eval_strategy="steps",
+        eval_steps=args.eval_steps,
+        save_steps=args.save_steps,
+        logging_steps=1,
+        log_completions=True,
+        num_completions_to_print=0,
+        report_to="wandb",
+    )
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task", choices=["swaps", "math"], required=True)
     parser.add_argument("--name", required=True)
@@ -47,54 +81,28 @@ def main():
     parser.add_argument("--save-steps", type=int, default=50)
     parser.add_argument("--vllm-memory", type=float, default=0.3)
     parser.add_argument("--seed", type=int, default=0)
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main():
+    args = parse_args()
 
     from peft import LoraConfig
-    from trl import GRPOConfig, GRPOTrainer
+    from trl import GRPOTrainer
 
     out = Path("runs") / args.name
     out.mkdir(parents=True, exist_ok=True)
     (out / "args.json").write_text(json.dumps(vars(args), indent=2))
 
-    completions_per_step = args.prompts_per_step * args.generations
-    config = GRPOConfig(
-        output_dir=str(out),
-        run_name=args.name,
-        seed=args.seed,
-        max_steps=args.max_steps,
-        learning_rate=args.lr,
-        lr_scheduler_type="constant",
-        per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=completions_per_step // args.batch_size,
-        per_device_eval_batch_size=args.eval_problems * args.generations,
-        num_generations=args.generations,
-        max_completion_length=args.max_tokens,
-        temperature=args.temperature,
-        generation_kwargs={"stop": STOP},
-        beta=args.beta,
-        loss_type="dapo",
-        use_vllm=True,
-        vllm_mode="colocate",
-        vllm_gpu_memory_utilization=args.vllm_memory,
-        bf16=True,
-        gradient_checkpointing=True,
-        eval_strategy="steps",
-        eval_steps=args.eval_steps,
-        save_steps=args.save_steps,
-        logging_steps=1,
-        log_completions=True,
-        num_completions_to_print=0,
-        report_to="wandb",
-    )
     trainer = GRPOTrainer(
         model=args.model,
         reward_funcs=logged_reward(
             out / "rollouts.jsonl",
             lambda: (trainer.state.global_step, "train" if trainer.model.training else "eval"),
         ),
-        args=config,
-        train_dataset=dataset(args.task, args.seed, args.max_steps * args.prompts_per_step, args.swaps),
-        eval_dataset=dataset(args.task, args.seed + 10_000, args.eval_problems, args.swaps),
+        args=grpo_config(args, out),
+        train_dataset=dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps),
+        eval_dataset=dataset(args.task, "eval", args.seed, args.eval_problems, args.swaps),
         peft_config=LoraConfig(
             r=args.lora_rank, lora_alpha=2 * args.lora_rank, target_modules="all-linear", task_type="CAUSAL_LM"
         ),

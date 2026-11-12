@@ -7,8 +7,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from tasks import Problem, dataset, parse_answer, reward
-from train import STOP
+from tasks import STOP, Problem, dataset, parse_answer, reward
 
 # The system nvcc is too old to JIT-compile FlashInfer's sampler.
 os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
@@ -16,6 +15,7 @@ from vllm import LLM, SamplingParams  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", choices=["swaps", "math"], required=True)
+parser.add_argument("--split", choices=["train", "eval"], default="train")
 parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
 parser.add_argument("--swaps", type=int, nargs="+", default=[2, 4, 8, 16, 32, 48])
 parser.add_argument("--problems", type=int, default=600, help="total, split evenly across swap levels")
@@ -26,11 +26,11 @@ parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--out", type=Path, default=Path("runs/baseline"))
 args = parser.parse_args()
 
-problems = [Problem(**row) for row in dataset(args.task, args.seed, args.problems, args.swaps)]
+problems = [Problem(**row) for row in dataset(args.task, args.split, args.seed, args.problems, args.swaps)]
 
 llm = LLM(args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed)
 sampling = SamplingParams(
-    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=STOP
+    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=[STOP]
 )
 start = time.time()
 outputs = llm.generate([p.prompt for p in problems], sampling)

@@ -6,6 +6,8 @@ from datasets import Dataset, load_dataset
 
 ANSWER = re.compile(r"Answer:\s*([^\n]+)")
 BOXED = re.compile(r"\\boxed\{(.*)\}")
+STOP = "\nProblem:"
+MATH_EVAL = 500
 PROMPT = (
     'Solve the following problem. Reason step by step, then end with a line of the form "Answer: X".\n\n'
     "Problem: {}\nReasoning:"
@@ -36,8 +38,13 @@ def swap_problems(seed: int, n: int, n_swaps: int) -> list[Problem]:
     return [swap_problem(rng, n_swaps) for _ in range(n)]
 
 
-def math_problems(seed: int, n: int) -> list[Problem]:
-    rows = load_dataset("allenai/Dolci-RL-Zero-Math-7B", split="train").shuffle(seed=seed)
+def math_problems(split: str, seed: int, n: int) -> list[Problem]:
+    """The first MATH_EVAL rows of a fixed shuffle are held out for eval; train draws from the rest."""
+    rows = load_dataset("allenai/Dolci-RL-Zero-Math-7B", split="train").shuffle(seed=0)
+    if split == "eval":
+        rows = rows.select(range(MATH_EVAL))
+    else:
+        rows = rows.select(range(MATH_EVAL, len(rows))).shuffle(seed=seed)
     return [Problem(PROMPT.format(row["prompt"]), row["ground_truth"]) for row in rows.select(range(n))]
 
 
@@ -49,7 +56,9 @@ def normalize(answer: str) -> str:
 
 
 def parse_answer(completion: str) -> str | None:
-    match = ANSWER.search(completion)
+    """The answer counts only if it is on the final line, so nothing after it can be rewarded."""
+    last_line = completion.removesuffix(STOP).rstrip().rsplit("\n", 1)[-1]
+    match = ANSWER.search(last_line)
     return normalize(match.group(1)) if match else None
 
 
@@ -57,9 +66,10 @@ def reward(completion: str, answer: str) -> float:
     return float(parse_answer(completion) == normalize(answer))
 
 
-def dataset(task: str, seed: int, n: int, levels: list[int]) -> Dataset:
+def dataset(task: str, split: str, seed: int, n: int, levels: list[int]) -> Dataset:
     if task == "swaps":
+        seed += 10_000 * (split == "eval")
         problems = [p for i, k in enumerate(levels) for p in swap_problems(seed + i, n // len(levels), k)]
     else:
-        problems = math_problems(seed, n)
+        problems = math_problems(split, seed, n)
     return Dataset.from_list([vars(p) for p in problems])
