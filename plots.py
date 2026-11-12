@@ -13,8 +13,7 @@ uv run --with matplotlib plots.py --coverage RUN                  how many of a 
 uv run --with matplotlib plots.py --train-eval RUN                newline use on training and held-out puzzles
 uv run --with matplotlib plots.py --templates RUN                 share of responses containing each common sentence template
 uv run --with matplotlib plots.py --okay RUN                      responses that open with "Okay"
-uv run --with matplotlib plots.py --errors RUN                    what went wrong in the responses that scored 0
-uv run --with matplotlib plots.py --error-shares RUN              the same, as a share of the wrong responses
+uv run --with matplotlib plots.py --errors RUN                    what went wrong in the responses that scored 0, as shares of them
 """
 
 import json
@@ -567,7 +566,7 @@ def error_cause(row: dict, max_tokens: int) -> str:
     return ERRORS[3][0] if "wrong" in tracking(row) else ERRORS[4][0]
 
 
-def plot_errors(run: str, of_wrong: bool = False):
+def plot_errors(run: str):
     data = load(run)
     args = json.loads(Path("runs", run, "args.json").read_text())
     levels = sorted(data["train"] | data["eval"])
@@ -580,27 +579,26 @@ def plot_errors(run: str, of_wrong: bool = False):
         bins = dict(sorted(bins.items()))
         causes = [[error_cause(r, args["max_tokens"]) for r in rs if not r["reward"]] for rs in bins.values()]
         floor = [0.0] * len(bins)
-        shown = [len(c) >= MIN_SAMPLES or not of_wrong for c in causes]
+        shown = [len(c) >= MIN_SAMPLES for c in causes]
         for name, color in ERRORS:
-            share = [c.count(name) / (len(c) if of_wrong else len(rs)) if ok else 0 for c, rs, ok in zip(causes, bins.values(), shown)]
+            share = [c.count(name) / len(c) if ok else 0 for c, ok in zip(causes, shown)]
             ax.bar(list(bins), share, (BIN if trained else 10) - 3, bottom=floor, color=color, label=name)
             floor = [f + v for f, v in zip(floor, share)]
-        if of_wrong:
-            for x, c, ok in zip(bins, causes, shown):
-                if ok:
-                    ax.annotate(len(c), (x, 1), xytext=(0, 2), textcoords="offset points", ha="center", fontsize=8)
-        ax.set_title(f"{level} swaps" if trained else f"{level} swaps, held-out only", pad=14 if of_wrong else None)
+        for x, c, ok in zip(bins, causes, shown):
+            if ok:
+                ax.annotate(len(c), (x, 1), xytext=(0, 2), textcoords="offset points", ha="center", fontsize=8)
+        ax.set_title(f"{level} swaps" if trained else f"{level} swaps, held-out only", pad=14)
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_yticks([0, 0.25, 0.5, 0.75, 1])
-        ax.set_ylim(0, 1 if of_wrong else 1.03)
+        ax.set_ylim(0, 1)
     for ax in axes[1]:
         ax.set_xlabel("Training step")
     for ax in axes[:, 0]:
-        ax.set_ylabel("Share of wrong responses" if of_wrong else "Share of responses")
+        ax.set_ylabel("Share of wrong responses")
     fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
     fig.suptitle(f"{args['model'].split('/')[-1]}: error analysis")
     Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-{'error-shares' if of_wrong else 'errors'}.png", dpi=150)
+    fig.savefig(f"figures/{run}-error-shares.png", dpi=150)
 
 
 def reweighted(rows: list[dict], metric) -> float:
@@ -647,7 +645,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
-        "--okay": plot_okay, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors, "--error-shares": lambda run: plot_errors(run, of_wrong=True),
+        "--okay": plot_okay, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
