@@ -74,6 +74,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--format", choices=FORMATS, default="tags", help="think/answer tags or plain text")
     parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
     parser.add_argument("--swaps", type=int, nargs="+", default=[1, 2, 3, 4])
+    parser.add_argument("--eval-swaps", type=int, nargs="+", help="held-out swap counts, default --swaps")
     parser.add_argument("--max-steps", type=int, default=300)
     parser.add_argument("--prompts-per-step", type=int, default=32)
     parser.add_argument("--generations", type=int, default=8)
@@ -115,7 +116,7 @@ def main():
         ),
         args=grpo_config(args, out),
         train_dataset=dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps, fmt),
-        eval_dataset=dataset(args.task, "eval", args.seed, args.eval_problems, args.swaps, fmt),
+        eval_dataset=dataset(args.task, "eval", args.seed, args.eval_problems, args.eval_swaps or args.swaps, fmt),
         peft_config=LoraConfig(
             r=args.lora_rank, lora_alpha=2 * args.lora_rank, target_modules="all-linear", task_type="CAUSAL_LM"
         ),
