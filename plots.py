@@ -394,9 +394,10 @@ def plot_tracking(run: str):
         ("Swaps followed by a standalone location statement", standalone_share),
     ]
     if examples:
-        fig, grid = plt.subplots(2, 2, figsize=(11, 8), layout="constrained")
-        *axes, margin = grid.flatten()
-        margin.axis("off")
+        grid = plt.figure(figsize=(15, 8), layout="constrained").subplot_mosaic("\n".join(["a" * 7 + "b" * 7, "l" * 4 + "c" * 5 + "r" * 5]))
+        fig, axes, margins = grid["a"].figure, [grid["a"], grid["b"], grid["c"]], [grid["l"], grid["r"]]
+        for margin in margins:
+            margin.axis("off")
     else:
         fig, axes = plt.subplots(1, 3, figsize=(16, 4.4), layout="constrained")
     binned = {}
@@ -413,11 +414,11 @@ def plot_tracking(run: str):
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_ylim(0, 1.03)
     axes[0].legend(loc="lower right")
-    for (level, step, text), height in zip(examples, [0.12, 0.78, 0.45]):
+    for (level, step, text), (side, x, height) in zip(examples, [(0, 0.8, 0.3), (1, 0.05, 0.75), (1, 0.05, 0.3)]):
         start = step // width * width
         axes[2].annotate(
-            text, xy=(start + width / 2, standalone_share(binned[level][start])), xytext=(0.05, height), textcoords=margin.transAxes,
-            va="center", fontsize=10.5, bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": "0.4"},
+            text, xy=(start + width / 2, standalone_share(binned[level][start])), xytext=(x, height),
+            textcoords=margins[side].transAxes, va="center", ha="left" if side else "right", multialignment="left", fontsize=10.5, bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": "0.4"},
             arrowprops={"arrowstyle": "->", "color": "0.25"}, annotation_clip=False,
         ).set_in_layout(False)
     fig.suptitle(model)
