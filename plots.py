@@ -270,10 +270,9 @@ def plot_whitespace(run: str):
         ("Completions containing", "{x:.0%}", [
             ("A newline", has(r"\n")), ("A blank line", has(r"\n\n")), ("Two spaces in a row", has("  ")),
         ]),
-        ("Newlines per completion", "{x:.0f}", [(None, lambda text: text.count("\n"))]),
         ("Whitespace as a share of characters", "{x:.0%}", [(None, lambda text: sum(map(str.isspace, text)) / len(text))]),
     ]
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), layout="constrained")
     for ax, (title, tick_format, series) in zip(axes, panels):
         for (name, metric), color in zip(series, [c for _, c in OUTCOMES]):
             ax.plot(*smoothed(pooled, metric), color=color, label=name, linewidth=2)
@@ -282,7 +281,7 @@ def plot_whitespace(run: str):
         ax.set_ylim(0)
         ax.yaxis.set_major_formatter(tick_format)
     axes[0].legend(loc="upper right")
-    axes[2].set_ylim(0, 0.3)
+    axes[1].set_ylim(0, 0.3)
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-whitespace.png", dpi=150)
