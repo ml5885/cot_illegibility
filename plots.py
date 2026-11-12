@@ -163,7 +163,7 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
             ax.set_ylabel(label)
     for ax in panels[-2:]:
         ax.set_xlabel("Training step")
-    panels[0].set_ylim(0, 1.05 * max(ax.dataLim.y1 for ax in panels))
+    panels[0].set_ylim(0, 1.03 if "%" in tick_format else 1.05 * max(ax.dataLim.y1 for ax in panels))
     panels[0].yaxis.set_major_formatter(tick_format)
     fig.legend(*panels[0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
     fig.suptitle(f"{model}: {title}")
@@ -197,6 +197,7 @@ def plot_length_signal(run: str):
         ax.set_ylim(0)
     for ax in (accuracy_ax, kinds_ax, newline_ax):
         ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 1.03)
     for ax in (kinds_ax, newline_ax):
         ax.set_xlabel("Training step")
     accuracy_ax.legend(loc="best")
@@ -262,8 +263,8 @@ def plot_token_limit(run: str):
         ax.plot(centers, [b[-1] for b in bins], ".", color="0.35", label="Longest")
         ax.axhline(limit, color="black", linestyle="--", linewidth=1, label="Token limit")
         top.set_title(f"{level} swaps")
-        top.set_ylim(0, 0.15)
-        top.set_yticks([0, 0.15], ["0%", "15%"] if i % 2 == 0 else ["", ""])
+        top.set_ylim(0, 1)
+        top.set_yticks([0, 1], ["0%", "100%"] if i % 2 == 0 else ["", ""])
         top.spines["left"].set_visible(False)
         top.tick_params(length=0)
         ax.set_ylim(0, limit * 1.06)
@@ -329,7 +330,7 @@ def plot_blank_lines(run: str):
     scores.legend(loc="lower right")
     for ax in (where, scores):
         ax.set_xlabel("Training step")
-        ax.set_ylim(0)
+        ax.set_ylim(0, 1.03)
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-blank-lines.png", dpi=150)
@@ -598,8 +599,8 @@ def plot_errors(run: str, of_wrong: bool = False):
                     ax.annotate(len(c), (x, 1), xytext=(0, 2), textcoords="offset points", ha="center", fontsize=8)
         ax.set_title(f"{level} swaps" if trained else f"{level} swaps, held-out only", pad=14 if of_wrong else None)
         ax.yaxis.set_major_formatter("{x:.0%}")
-        if of_wrong:
-            ax.set_yticks([0, 0.25, 0.5, 0.75, 1])
+        ax.set_yticks([0, 0.25, 0.5, 0.75, 1])
+        ax.set_ylim(0, 1 if of_wrong else 1.03)
     for ax in axes[1]:
         ax.set_xlabel("Training step")
     for ax in axes[:, 0]:
