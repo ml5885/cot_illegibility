@@ -12,6 +12,7 @@ uv run --with matplotlib plots.py --groups RUN                    rewarded vs un
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
 uv run --with matplotlib plots.py --tracking RUN                  blank lines against per-swap tracking, by swap count
 uv run --with matplotlib plots.py --styles RUN                    blank-line vs plain responses to the same puzzle
+uv run --with matplotlib plots.py --coverage RUN                  how many of a puzzle's swaps the reasoning writes out
 """
 
 import json
@@ -539,6 +540,39 @@ def plot_traces(run: str):
     fig.savefig(f"figures/{run}-traces.png", dpi=150)
 
 
+def plot_coverage(run: str):
+    data = load(run)
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    width = 5
+    missed = lambda row: tracking(row).count("skipped")
+    panels = [
+        ("Swaps written out", lambda rs, level: 1 - sum(map(missed, rs)) / (level * len(rs))),
+        ("Responses that write out every swap", lambda rs, level: sum(missed(r) == 0 for r in rs) / len(rs)),
+        ("Responses exactly one swap short", lambda rs, level: sum(missed(r) == 1 for r in rs) / len(rs)),
+    ]
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6), sharey=True, layout="constrained")
+    for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(data["train"] | data["eval"])):
+        trained = level in data["train"]
+        bins = defaultdict(list)
+        for step, rows in data["train" if trained else "eval"][level].items():
+            bins[step // width * width + width / 2 if trained else step] += rows
+        bins = dict(sorted(bins.items()))
+        for ax, (_, metric) in zip(axes, panels):
+            ax.plot(
+                list(bins), [metric(rs, level) for rs in bins.values()], "-" if trained else ":", color=color,
+                label=f"{level} swaps" if trained else f"{level} swaps, held-out only",
+            )
+    for ax, (title, _) in zip(axes, panels):
+        ax.set_title(title)
+        ax.set_xlabel("Training step")
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 1.03)
+    fig.legend(*axes[0].get_legend_handles_labels(), loc="outside lower center", ncol=4)
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-coverage.png", dpi=150)
+
+
 def plot_styles(run: str):
     """Blank-line minus plain responses within a rollout group that has both, one observation per group."""
     rows = load(run)["train"]
@@ -620,7 +654,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
         "--blank-lines": plot_blank_lines, "--groups": plot_groups, "--traces": plot_traces, "--tracking": plot_tracking,
-        "--styles": plot_styles,
+        "--styles": plot_styles, "--coverage": plot_coverage,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
