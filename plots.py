@@ -170,8 +170,8 @@ def plot_length_signal(run: str):
     for by_step in rows.values():
         for step, step_rows in by_step.items():
             pooled[step] += step_rows
-    kinds = [("A newline", "\n"), ("A blank line", "\n\n"), ("Two spaces in a row", "  ")]
-    for (name, text), (_, color) in zip(kinds, OUTCOMES):
+    kinds = [("A newline", "\n", "#eb6834"), ("A blank line", "\n\n", "#e87ba4"), ("Two spaces in a row", "  ", "0.45")]
+    for name, text, color in kinds:
         axes[0].plot(*smoothed(pooled, lambda row: float(text in row["completion"])), color=color, label=name, linewidth=2)
     axes[0].set_title("Completions containing")
     by_level = [(newline, "Completions with a newline"), (tokens, "Completion length in tokens"), (accuracy, "Accuracy")]
