@@ -157,35 +157,38 @@ def plot_by_outcome(run: str, metric, label: str, title: str, tick_format: str, 
     fig.savefig(f"figures/{run}-{suffix}.png", dpi=150)
 
 
-def gaps(rows: list[dict], metric) -> list[float]:
-    """Incorrect minus correct mean of the metric, for each puzzle whose samples were not all scored alike."""
+def sides(rows: list[dict], metric) -> list[tuple[float, float]]:
+    """(incorrect mean, correct mean) of the metric, for each puzzle whose samples were not all scored alike."""
     puzzles = defaultdict(lambda: ([], []))
     for row in rows:
         puzzles[row["prompt"]][int(row["reward"])].append(metric(row))
-    return [sum(wrong) / len(wrong) - sum(right) / len(right) for wrong, right in puzzles.values() if wrong and right]
+    return [(sum(wrong) / len(wrong), sum(right) / len(right)) for wrong, right in puzzles.values() if wrong and right]
 
 
 def plot_length_signal(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    margins = [
-        (length, "Length: incorrect − correct"),
-        (newline, "Newline use: incorrect − correct"),
-    ]
     fig, axes = plt.subplots(1, 3, figsize=(16, 4.2), layout="constrained")
+    starts = range(0, max(max(by_step) for by_step in rows.values()) + 1, BIN)
+    centers = [s + BIN / 2 for s in starts]
+    binned = lambda by_step: [[r for step in range(start, start + BIN) for r in by_step.get(step, [])] for start in starts]
+    mean = lambda values: sum(values) / len(values) if len(values) >= MIN_SAMPLES else float("nan")
     for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
-        starts = range(0, max(rows[level]) + 1, BIN)
-        bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
-        for ax, (metric, title) in zip(axes, margins):
-            means = [sum(g) / len(g) if len(g := gaps(b, metric)) >= MIN_SAMPLES else float("nan") for b in bins]
-            ax.plot([s + BIN / 2 for s in starts], means, "o-", color=color, label=f"{level} swaps")
-            ax.axhline(0, color="gray", linestyle=":", linewidth=1)
-            ax.set_title(title)
+        gaps = [[wrong - right for wrong, right in sides(b, length)] for b in binned(rows[level])]
+        axes[0].plot(centers, [mean(g) for g in gaps], "o-", color=color, label=f"{level} swaps")
         axes[2].plot(*smoothed(rows[level], newline), color=color)
-    axes[1].yaxis.set_major_formatter("{x:+.0%}")
-    axes[2].yaxis.set_major_formatter("{x:.0%}")
+    pooled = [sum((sides(b, newline) for b in bins), []) for bins in zip(*(binned(rows[level]) for level in rows))]
+    for side, (name, color) in [(1, OUTCOMES[0]), (0, ("Incorrect", OUTCOMES[1][1]))]:
+        axes[1].plot(centers, [mean([pair[side] for pair in b]) for b in pooled], "o-", color=color, label=name)
+    axes[0].axhline(0, color="gray", linestyle=":", linewidth=1)
+    axes[0].set_title("Length: incorrect − correct")
+    axes[1].set_title("Newline use in mixed-outcome puzzles")
+    axes[1].legend(loc="upper right")
     axes[2].set_title("Completions with a newline")
     axes[2].legend(*axes[0].get_legend_handles_labels(), loc="upper right")
+    for ax in axes[1:]:
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 0.9)
     for ax in axes:
         ax.set_xlabel("Training step")
         ax.set_xlim(-5, 205)
