@@ -390,7 +390,7 @@ def plot_tracking(run: str):
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     width, examples = 5, EXAMPLES.get(run, [])
     panels = [
-        ("Swaps followed by the right key location", right_share),
+        ("Correctly tracks the key's location", right_share),
         ("Swaps followed by a newline", newline_step_share),
         ("Swaps followed by a standalone location statement", standalone_share),
     ]
