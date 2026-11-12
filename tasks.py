@@ -5,13 +5,17 @@ from dataclasses import dataclass
 
 from datasets import Dataset, load_dataset
 
-ANSWER = re.compile(r"Answer:\s*([^\n]+)")
+ANSWER = re.compile(r"</think>\s*<answer>(.*?)</answer>", re.DOTALL)
 BOXED = re.compile(r"\\boxed\{(.*)\}")
-STOP = "\nProblem:"
+STOP = "</answer>"
 MATH_EVAL = 500
+# Modeled on the DeepSeek R1-Zero template, with the opening tag prefilled.
 PROMPT = (
-    'Solve the following problem. Reason step by step, then end with a line of the form "Answer: X".\n\n'
-    "Problem: {}\nReasoning:"
+    "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. "
+    "The assistant first thinks about the reasoning process in the mind and then provides the user with the answer. "
+    "The reasoning process and answer are enclosed within <think> </think> and <answer> </answer> tags, "
+    "respectively, i.e., <think> reasoning process here </think> <answer> answer here </answer>. "
+    "User: {} Assistant: <think>"
 )
 
 
@@ -67,10 +71,13 @@ def normalize(answer: str) -> str:
 
 
 def parse_answer(completion: str) -> str | None:
-    """The answer counts only if it is on the final line, so nothing after it can be rewarded."""
-    last_line = completion.removesuffix(STOP).rstrip().rsplit("\n", 1)[-1]
-    match = ANSWER.search(last_line)
+    """The completion continues an open <think>, so it must close it and then give a closed <answer>."""
+    match = ANSWER.search(completion)
     return normalize(match.group(1)) if match else None
+
+
+def reasoning(completion: str) -> str:
+    return completion.split("</think>")[0]
 
 
 def reward(completion: str, answer: str) -> float:

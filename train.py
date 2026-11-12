@@ -43,7 +43,7 @@ def grpo_config(args: argparse.Namespace, out: Path):
         num_generations=args.generations,
         max_completion_length=args.max_tokens,
         temperature=args.temperature,
-        generation_kwargs={"stop": [STOP]},
+        generation_kwargs={"stop": [STOP], "include_stop_str_in_output": True},
         beta=args.beta,
         loss_type="dapo",
         use_vllm=True,

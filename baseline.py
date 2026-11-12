@@ -30,7 +30,7 @@ problems = [Problem(**row) for row in dataset(args.task, args.split, args.seed, 
 
 llm = LLM(args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed)
 sampling = SamplingParams(
-    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=[STOP]
+    n=args.k, temperature=args.temperature, max_tokens=args.max_tokens, stop=[STOP], include_stop_str_in_output=True
 )
 start = time.time()
 outputs = llm.generate([p.prompt for p in problems], sampling)
