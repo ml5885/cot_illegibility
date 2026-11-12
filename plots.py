@@ -382,6 +382,10 @@ EXAMPLES = {
         (4, 100, 'Step 100\n"1. Swap the contents of boxes D and A:\nThe key, being in box D, will move to box A.\nSo now, the key is in box A."'),
         (4, 187, 'Step 187\n"5. Swap the contents of boxes A and E:\nThe key, initially in E, will move to box A."'),
     ],
+    "swaps-7b-tags-2and4": [
+        (4, 5, 'Step 5\n"4. Swap F and A:\nThe contents of F and A are exchanged.\nThe key moves from A to F."'),
+        (4, 88, 'Step 88\n"4. Swap the contents of boxes A and F:\nThe key was in F before this swap,\nso it moves to A. Now, the key is in box A."'),
+    ],
 }
 
 
