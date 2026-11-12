@@ -10,8 +10,7 @@ uv run --with matplotlib plots.py --token-limit RUN               completion tok
 uv run --with matplotlib plots.py --blank-lines RUN               where the first blank line falls; reward vs a lenient parser
 uv run --with matplotlib plots.py --groups RUN                    rewarded vs unrewarded samples of the same puzzle
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
-uv run --with matplotlib plots.py --tracking RUN                  blank lines against per-swap tracking, by opening sentence
-uv run --with matplotlib plots.py --openers RUN                   the same, per opening sentence and swap count
+uv run --with matplotlib plots.py --tracking RUN                  blank lines against per-swap tracking, by swap count
 uv run --with matplotlib plots.py --styles RUN                    blank-line vs plain responses to the same puzzle
 """
 
@@ -445,11 +444,6 @@ def restated_share(rows: list[dict]) -> float:
     return sum(restated for _, restated in steps) / len(steps)
 
 
-def blank_after_opening(row: dict) -> float:
-    rest = row["completion"].strip()[len(opening(row)) :]
-    return float("\n\n" in rest[: len(rest) - len(rest.lstrip())])
-
-
 def trace_parts(row: dict, count) -> dict:
     """Split a completion into the text spent on each swap of its puzzle."""
     swaps, _, moves = puzzle(row)
@@ -470,46 +464,32 @@ def trace_parts(row: dict, count) -> dict:
     }
 
 
-def opening(row: dict) -> str:
-    return re.split(r"(?<=[.:!?])\s", row["completion"].strip(), maxsplit=1)[0]
-
-
 def plot_tracking(run: str):
-    """Observational: the opening is whichever sentence the model chose, not one we prefilled."""
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    width, enough = 5, 30
-    bins = defaultdict(list)
-    for by_step in rows.values():
-        for step, step_rows in by_step.items():
-            bins[step // width * width] += step_rows
-    counts = defaultdict(int)
-    for row in sum(bins.values(), []):
-        counts[opening(row)] += 1
-    groups = [("All responses", None)] + [(name, name) for name in sorted(counts, key=counts.get, reverse=True)[:3]]
+    width = 5
+    share = lambda outcome: lambda rs: [o for r in rs for o in tracking(r)].count(outcome) / sum(len(tracking(r)) for r in rs)
     panels = [
         ("Responses with a blank line", lambda rs: sum("\n\n" in r["completion"] for r in rs) / len(rs)),
-        ("Swaps followed by the right key location", lambda rs: share(rs, "right")),
-        ("Swaps skipped or left without a location", lambda rs: share(rs, "skipped") + share(rs, "unstated")),
+        ("Swaps followed by the right key location", right_share),
+        ("Swaps skipped or left without a location", lambda rs: share("skipped")(rs) + share("unstated")(rs)),
+        ("Swaps whose step restates the location", restated_share),
     ]
-
-    def share(rs, outcome):
-        outcomes = [o for r in rs for o in tracking(r)]
-        return outcomes.count(outcome) / len(outcomes)
-
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.6), sharey=True, layout="constrained")
-    for (label, name), color in zip(groups, ["black"] + PALETTE):
-        kept = {start: [r for r in rs if name in (None, opening(r))] for start, rs in sorted(bins.items())}
-        kept = {start: rs for start, rs in kept.items() if len(rs) >= enough}
-        for ax, (_, metric) in zip(axes, panels):
-            ax.plot([s + width / 2 for s in kept], [metric(rs) for rs in kept.values()], "o-", color=color, label=label, markersize=4,
-                    linewidth=2.5 if name is None else 1.5)
-    for ax, (title, _) in zip(axes, panels):
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey=True, layout="constrained")
+    for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows)):
+        bins = defaultdict(list)
+        for step, step_rows in rows[level].items():
+            bins[step // width * width] += step_rows
+        bins = dict(sorted(bins.items()))
+        for ax, (_, metric) in zip(axes.flatten(), panels):
+            ax.plot([s + width / 2 for s in bins], [metric(rs) for rs in bins.values()], color=color, label=f"{level} swaps")
+    for ax, (title, _) in zip(axes.flatten(), panels):
         ax.set_title(title)
-        ax.set_xlabel("Training step")
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.set_ylim(0, 1.03)
-    fig.legend(*axes[0].get_legend_handles_labels(), loc="outside lower center", ncol=2, fontsize=10, title="Opening sentence")
+    for ax in axes[1]:
+        ax.set_xlabel("Training step")
+    axes[0, 0].legend(loc="best")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-tracking.png", dpi=150)
@@ -556,47 +536,6 @@ def plot_traces(run: str):
     fig.suptitle(f"{args['model'].split('/')[-1]}: correct {level}-swap traces on {len(solved)} held-out puzzles")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-traces.png", dpi=150)
-
-
-def plot_openers(run: str):
-    """Observational: each line follows the responses that happened to start with that sentence."""
-    rows = load(run)["train"]
-    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    width, enough = 10, 10
-    counts = defaultdict(int)
-    for by_step in rows.values():
-        for step, step_rows in by_step.items():
-            if 10 <= step < 70:
-                for row in step_rows:
-                    counts[opening(row)] += 1
-    openers = sorted(counts, key=counts.get, reverse=True)[:4]
-    panels = [
-        ("Opening followed\nby a blank line", lambda rs: sum(map(blank_after_opening, rs)) / len(rs), "{x:.0%}"),
-        ("Swaps followed by the\nright key location", right_share, "{x:.0%}"),
-        ("Swaps whose step\nrestates the location", restated_share, "{x:.0%}"),
-        ("Responses\nper 10 steps", len, "{x:.0f}"),
-    ]
-    levels = sorted(rows)
-    fig, axes = plt.subplots(len(panels), len(levels), figsize=(4 * len(levels), 10), sharex=True, sharey="row", layout="constrained")
-    for column, level in zip(axes.T, levels):
-        for name, color in zip(openers, PALETTE):
-            bins = defaultdict(list)
-            for step, step_rows in rows[level].items():
-                bins[step // width * width] += [r for r in step_rows if opening(r) == name]
-            bins = dict(sorted(bins.items()))
-            for ax, (_, metric, _) in zip(column, panels):
-                kept = {start: rs for start, rs in bins.items() if metric is len or len(rs) >= enough}
-                ax.plot([s + width / 2 for s in kept], [metric(rs) for rs in kept.values()], "o-", color=color, label=name, markersize=3)
-        column[0].set_title(f"{level} swaps")
-        column[-1].set_xlabel("Training step")
-    for ax, (title, _, tick_format) in zip(axes[:, 0], panels):
-        ax.set_ylabel(title)
-        ax.yaxis.set_major_formatter(tick_format)
-        ax.set_ylim(0)
-    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=2, fontsize=10, title="Opening sentence")
-    fig.suptitle(model)
-    Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-openers.png", dpi=150)
 
 
 def plot_styles(run: str):
@@ -680,7 +619,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
         "--blank-lines": plot_blank_lines, "--groups": plot_groups, "--traces": plot_traces, "--tracking": plot_tracking,
-        "--openers": plot_openers, "--styles": plot_styles,
+        "--styles": plot_styles,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
