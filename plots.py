@@ -14,7 +14,19 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-plt.rcParams["font.family"] = "serif"
+plt.rcParams.update({
+    "font.family": "serif",
+    "font.size": 11,
+    "axes.titlesize": 11,
+    "axes.labelsize": 11,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "legend.fontsize": 10,
+    "figure.titlesize": 12,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "legend.frameon": False,
+})
 
 WINDOW = 5
 BIN, MIN_SAMPLES = 20, 5
@@ -88,7 +100,9 @@ def outcome(row: dict) -> str:
 def plot_lengths(run: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    fig, axes = plt.subplots(2, len(rows), figsize=(4 * len(rows), 5), sharex="col", height_ratios=[1, 3])
+    fig, axes = plt.subplots(
+        2, len(rows), figsize=(3.6 * len(rows), 4.6), sharex=True, sharey="row", height_ratios=[1, 3], layout="constrained"
+    )
     for (top, ax), level in zip(axes.T, sorted(rows)):
         starts = range(0, max(rows[level]) + 1, BIN)
         centers = [s + BIN / 2 for s in starts]
@@ -97,19 +111,24 @@ def plot_lengths(run: str):
         for name, color in OUTCOMES:
             lengths = [[length(r) for r in b if outcome(r) == name] for b in bins]
             share = [len(v) / len(b) for v, b in zip(lengths, bins)]
-            top.bar(centers, share, BIN - 2, bottom=floor, color=color)
+            top.bar(centers, share, BIN - 3, bottom=floor, color=color)
             floor = [f + s for f, s in zip(floor, share)]
             means = [sum(v) / len(v) if len(v) >= MIN_SAMPLES else float("nan") for v in lengths]
-            ax.plot(centers, means, "o-", color=color, label=name)
+            ax.plot(centers, means, "o-", color=color, label=name, linewidth=1.8, markersize=5)
         top.set_title(f"{level} swaps")
         top.set_ylim(0, 1)
+        top.set_yticks([0, 1], ["0%", "100%"])
+        top.spines["left"].set_visible(False)
+        top.tick_params(length=0)
         ax.set_xlabel("Training step")
-        ax.set_ylim(0)
-    axes[0, 0].set_ylabel("Share of samples")
-    axes[1, 0].set_ylabel("Completion length (characters)")
-    axes[1, 0].legend(loc="upper right")
+        ax.grid(axis="y", color="0.9", linewidth=0.8)
+        ax.set_axisbelow(True)
+    axes[0, 0].set_ylabel("Share")
+    axes[1, 0].set_ylabel("Length (characters)")
+    axes[1, 0].set_ylim(0)
+    axes[1, 0].yaxis.set_major_formatter("{x:,.0f}")
+    fig.legend(*axes[1, 0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
     fig.suptitle(f"{model}: completion length by outcome")
-    fig.tight_layout()
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-lengths.png", dpi=150)
 
