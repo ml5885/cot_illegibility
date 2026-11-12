@@ -1,5 +1,6 @@
 import random
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 
 from datasets import Dataset, load_dataset
@@ -38,14 +39,24 @@ def swap_problems(seed: int, n: int, n_swaps: int) -> list[Problem]:
     return [swap_problem(rng, n_swaps) for _ in range(n)]
 
 
+def math_rows() -> list[tuple[str, str]]:
+    """Unique (problem, answer) pairs; problems that appear with conflicting answers are dropped."""
+    answers = defaultdict(set)
+    for row in load_dataset("allenai/Dolci-RL-Zero-Math-7B", split="train"):
+        answers[row["prompt"].strip()].add(row["ground_truth"])
+    return [(prompt, a.pop()) for prompt, a in answers.items() if len(a) == 1]
+
+
 def math_problems(split: str, seed: int, n: int) -> list[Problem]:
-    """The first MATH_EVAL rows of a fixed shuffle are held out for eval; train draws from the rest."""
-    rows = load_dataset("allenai/Dolci-RL-Zero-Math-7B", split="train").shuffle(seed=0)
+    """MATH_EVAL problems from a fixed shuffle are held out for eval; train draws from the rest."""
+    rows = math_rows()
+    random.Random(0).shuffle(rows)
     if split == "eval":
-        rows = rows.select(range(MATH_EVAL))
+        rows = rows[:MATH_EVAL]
     else:
-        rows = rows.select(range(MATH_EVAL, len(rows))).shuffle(seed=seed)
-    return [Problem(PROMPT.format(row["prompt"]), row["ground_truth"]) for row in rows.select(range(n))]
+        rows = rows[MATH_EVAL:]
+        random.Random(seed).shuffle(rows)
+    return [Problem(PROMPT.format(prompt), answer) for prompt, answer in rows[:n]]
 
 
 def normalize(answer: str) -> str:

@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from tasks import MATH_EVAL, PROMPT, dataset, math_problems, normalize, parse_answer, reward, swap_problem, swap_problems
+from tasks import MATH_EVAL, PROMPT, dataset, math_problems, math_rows, normalize, parse_answer, reward, swap_problem, swap_problems
 
 SWAP = re.compile(r"Swap the contents of boxes (\w) and (\w)\.")
 
@@ -106,7 +106,9 @@ def test_math_eval_is_fixed_and_disjoint_from_every_train_draw():
     assert eval_prompts == {p.prompt for p in math_problems("eval", seed=7, n=MATH_EVAL)}
     train_a = [p.prompt for p in math_problems("train", seed=0, n=12_000)]
     train_b = [p.prompt for p in math_problems("train", seed=1, n=12_000)]
-    assert train_a != train_b
+    assert train_a != train_b and set(train_a) == set(train_b)
+    assert len(set(train_a)) == len(train_a) == len(math_rows()) - MATH_EVAL
+    assert len(eval_prompts) == MATH_EVAL
     assert not eval_prompts & set(train_a) and not eval_prompts & set(train_b)
 
 
