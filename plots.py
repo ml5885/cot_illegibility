@@ -542,13 +542,13 @@ def plot_push(run: str):
     width = 10
     typical = {level: sum(r["tokens"] for rows in by_step.values() for r in rows) / sum(map(len, by_step.values())) for level, by_step in data.items()}
     features = [
-        (newline, "Completions with a newline", "{x:.0%}"),
-        (lambda row: row["tokens"] / typical[row["level"]], "Relative completion length", "{x:.2f}"),
+        (newline, "Completions with a newline", "{x:.0%}", "newline responses"),
+        (lambda row: row["tokens"] / typical[row["level"]], "Relative completion length", "{x:.2f}", "longer responses"),
     ]
     steps = sorted({step for by_step in data.values() for step in by_step})
     pooled = {step: [row for by_step in data.values() for row in by_step.get(step, [])] for step in steps}
     fig, axes = plt.subplots(2, 2, figsize=(12, 7), sharex=True, layout="constrained")
-    for (top, bottom), (feature, title, tick_format) in zip(axes.T, features):
+    for (top, bottom), (feature, title, tick_format, name) in zip(axes.T, features):
         top.plot(*smoothed(pooled, feature), color="0.2", linewidth=2)
         top.set_title(title, fontsize=12)
         top.yaxis.set_major_formatter(tick_format)
@@ -556,7 +556,7 @@ def plot_push(run: str):
         push = [sum(advantage_weighted_difference(pooled[s], feature) for s in range(a, a + width) if s in pooled) / width for a in starts]
         bottom.bar([a + width / 2 for a in starts], push, width - 2, color=[PALETTE[0] if v >= 0 else PALETTE[1] for v in push])
         bottom.axhline(0, color="black", linewidth=0.8)
-        bottom.set_title("Advantage-weighted difference within puzzles", fontsize=12)
+        bottom.set_title(f"Advantage of {name}", fontsize=12)
         bottom.set_xlabel("Training step")
     axes[0, 0].set_ylim(0, 1.03)
     fig.suptitle(model)
