@@ -137,7 +137,7 @@ PAGE = """<!doctype html>
   .chip button { font: inherit; border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 4px; font-size: 16px; line-height: 1; }
   select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); max-width: 100%; }
   label { color: var(--muted); margin-right: 6px; }
-  #plot { width: 100%; height: min(860px, 120vw); }
+  #plot { width: 100%; }
 </style>
 </head>
 <body>
@@ -283,8 +283,9 @@ function draw() {
   panels = [];
   const traces = [], layout = {
     font: FONT, paper_bgcolor: "#ffffff", plot_bgcolor: "#ffffff", hovermode: "x", showlegend: true,
-    legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.13, bordercolor: "#000", borderwidth: 1 },
-    margin: { l: 70, r: 40, t: 40, b: 120 }, annotations: [],
+    legend: { orientation: "h", x: 0.5, xanchor: "center", yref: "container", y: 0, yanchor: "bottom", bordercolor: "#000", borderwidth: 1 },
+    margin: { l: 70, r: 40, t: 40, b: 110 }, annotations: [], autosize: true,
+    height: Math.max(520, window.innerHeight - document.getElementById("plot").getBoundingClientRect().top - 8),
   };
   Object.keys(levels).forEach((level, i) => {
     const n = i + 1, x = `x${n}`, tokens = `y${60 + n}`, first = i === 0, shown = i % 2 === 1;
@@ -361,6 +362,8 @@ function cursor(x) {
   Plotly.relayout(plot, { shapes, annotations: titles.concat(panels.map(p => tooltip(p, step))) });
 }
 draw();
+let resizing;
+window.addEventListener("resize", () => { clearTimeout(resizing); resizing = setTimeout(draw, 150); });
 plot.on("plotly_hover", event => cursor(event.xvals ? event.xvals[0] : event.points[0].x));
 plot.on("plotly_unhover", () => cursor(null));
 
