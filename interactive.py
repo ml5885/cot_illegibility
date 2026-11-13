@@ -250,7 +250,8 @@ function draw() {
   fillPicker();
   renderChips();
   const { limit, levels } = DATA[run];
-  const extra = Math.max(lines.length - 1, 0);
+  const kinds = [...new Set(lines.map(line => line.kind))];
+  const extra = Math.max(kinds.length - 1, 0);
   const domains = [[0, 0.46], [0.54, 1 - GAP * extra]], rows = [[0.56, 1], [0, 0.44]];
   panels = [];
   const traces = [], layout = {
@@ -263,17 +264,21 @@ function draw() {
     const col = domains[i % 2], row = rows[Math.floor(i / 2)];
     layout[`xaxis${n}`] = { domain: col, anchor: `y${n}`, range: [0, 200], title: i >= 2 ? "Training step" : "", showgrid: false, zeroline: false };
     layout[`yaxis${n}`] = { domain: row, anchor: x, side: "right", showgrid: false, zeroline: false, showticklabels: false, ticks: "", range: [0, 1] };
-    lines.forEach((line, j) => {
-      const id = j === 0 ? n : 10 + (n - 1) * MAX_LINES + j, axis = `y${id}`;
-      const scale = line.kind === "advantage"
-        ? { range: [-1.5, 1.5], tickformat: ".1f", zeroline: true, zerolinecolor: line.color, zerolinewidth: 1 }
+    kinds.forEach((kind, j) => {
+      const id = j === 0 ? n : 10 + n, members = lines.filter(line => line.kind === kind);
+      const color = members.length === 1 ? members[0].color : "#555555";
+      const scale = kind === "advantage"
+        ? { range: [-1.5, 1.5], tickformat: ".1f", zeroline: true, zerolinecolor: "#9a9a9a", zerolinewidth: 1 }
         : { range: [0, 1.06], tickformat: ".0%", zeroline: false };
       layout[`yaxis${id}`] = {
         ...(j === 0 ? { domain: row, anchor: x } : { overlaying: `y${n}`, anchor: "free", position: Math.min(col[1] + GAP * j, 1) }),
-        side: "right", showgrid: false, showline: shown, linecolor: line.color, showticklabels: shown, ticks: shown ? "outside" : "",
-        tickfont: { color: line.color, size: 11 }, title: shown ? { text: line.kind === "advantage" ? "Mean advantage" : "Share", font: { color: line.color, size: 11 }, standoff: 2 } : "",
+        side: "right", showgrid: false, showline: shown, linecolor: color, showticklabels: shown, ticks: shown ? "outside" : "",
+        tickfont: { color, size: 11 }, title: shown ? { text: kind === "advantage" ? "Mean advantage" : "Share", font: { color, size: 11 }, standoff: 2 } : "",
         ...scale,
       };
+    });
+    lines.forEach(line => {
+      const j = kinds.indexOf(line.kind), axis = `y${j === 0 ? n : 10 + n}`;
       if (line.kind === "advantage") {
         const a = d.advantage[line.name];
         for (const [key, dash, side] of [["with", "solid", "yes"], ["without", "dash", "no"]]) {
