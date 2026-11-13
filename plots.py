@@ -258,6 +258,45 @@ def plot_failure(run: str):
     plot_by_level(run, panels, (2, 2), (11, 8), "failure")
 
 
+def plot_dropped(run: str):
+    """How often each swap of the problem is left out of the reasoning, by its position in the list and training step."""
+    from matplotlib.colors import PowerNorm
+
+    data = load(run)
+    args = json.loads(Path("runs", run, "args.json").read_text())
+    width, norm = 10, PowerNorm(0.5, vmin=0, vmax=0.6)
+
+    def left_out(row: dict) -> list[bool]:
+        reasoning = " ".join(row["completion"].partition("</think>")[0].split())
+        return [m is None for m in swap_mentions(reasoning, puzzle(row)[0])]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5), layout="constrained", width_ratios=[1, 1.6])
+    for ax, level in zip(axes, (8, 16)):
+        trained = level in data["train"]
+        by_step = data["train" if trained else "eval"][level]
+        if trained:
+            bins = defaultdict(list)
+            for step, rows in by_step.items():
+                bins[step // width * width] += rows
+            edges = sorted(bins) + [max(bins) + width]
+        else:
+            bins = dict(by_step)
+            steps = sorted(bins)
+            edges = [s - width / 2 for s in steps] + [steps[-1] + width / 2]
+        grid = [[sum(f[i] for f in flags) / len(flags) for i in range(level)] for flags in ([left_out(r) for r in bins[b]] for b in sorted(bins))]
+        mesh = ax.pcolormesh([i + 0.5 for i in range(level + 1)], edges, grid, cmap="Blues", norm=norm)
+        ax.set_title(f"{level} swaps" + ("" if trained else ", held-out only"))
+        ax.set_xticks(range(1, level + 1, 1 if level <= 8 else 3))
+        ax.set_xlabel("Position of the swap in the problem")
+        ax.invert_yaxis()
+    axes[0].set_ylabel("Training step")
+    fig.colorbar(mesh, ax=axes, label="Responses that leave out this swap", format="{x:.0%}", ticks=[0, 0.05, 0.1, 0.2, 0.4, 0.6])
+    extra = ", trained on 2 and 4 swaps" if args["swaps"] == [2, 4] else ""
+    fig.suptitle(f"{args['model'].split('/')[-1]}, {args['max_tokens']:,}-token limit{extra}")
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-dropped.png", dpi=150)
+
+
 def plot_error_analysis(run: str):
     plot_by_level(run, error_panels(), (1, 3), (15, 4.6), "error-analysis")
 
@@ -1026,7 +1065,7 @@ if __name__ == "__main__":
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
     OTHER = {
-        "--length-signal": plot_length_signal, "--failure": plot_failure, "--error-analysis": plot_error_analysis, "--token-limit": plot_token_limit,
+        "--length-signal": plot_length_signal, "--failure": plot_failure, "--error-analysis": plot_error_analysis, "--dropped": plot_dropped, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
         "--okay": plot_okay, "--push": plot_push, "--formatting": plot_formatting, "--advantages": plot_advantages, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }
