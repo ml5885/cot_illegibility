@@ -146,7 +146,6 @@ PAGE = """<!doctype html>
   <div><label for="add">Right axis</label><select id="add"></select></div>
 </div>
 <div class="chips" id="chips"></div>
-<p class="note">Shares are of training completions (5-step mean). Advantage lines show the mean GRPO advantage of completions with (solid) and without (dashed) a feature, among groups with mixed rewards, in 10-step bins with standard errors; bins with fewer than 5 completions on a side are left out.</p>
 <div id="plot"></div>
 <script>
 const DATA = __DATA__;
