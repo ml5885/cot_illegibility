@@ -7,6 +7,7 @@ uv run --with matplotlib plots.py --newlines RUN                  share of compl
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 uv run --with matplotlib plots.py --advantages RUN                distribution of GRPO advantages over training
+uv run --with matplotlib plots.py --formatting RUN                formatting features over training, and newline use with and without each
 uv run --with matplotlib plots.py --push RUN                      advantage-weighted difference in newlines and length within puzzles
 uv run --with matplotlib plots.py --newline-correlation RUN       correlation of using a newline with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
@@ -520,6 +521,56 @@ def plot_templates(run: str):
     fig.savefig(f"figures/{run}-templates.png", dpi=130)
 
 
+def first_word(row: dict) -> str:
+    return (re.findall(r"[A-Za-z']+", row["completion"]) or [""])[0]
+
+
+FORMATTING = [
+    ("Numbered list", lambda row: bool(re.search(r"(?:^|\s)1[.)]\s.*\s2[.)]\s", " ".join(row["completion"].split())))),
+    ("Dash bullets", lambda row: bool(re.search(r"(?:^|\s)- \S", " ".join(row["completion"].split())))),
+    ('"Step N:" headers', lambda row: bool(re.search(r"Step \d+:", row["completion"]))),
+    ('Opens with "Let\'s"', lambda row: first_word(row) == "Let's"),
+    ('Opens with "Okay"', lambda row: first_word(row) == "Okay"),
+    ('Opens with "To"', lambda row: first_word(row) == "To"),
+    ("Longer than typical for its swap count", None),
+    ("Correct", lambda row: bool(row["reward"])),
+]
+
+
+def plot_formatting(run: str):
+    data = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    width = 10
+    bins = defaultdict(list)
+    for by_step in data.values():
+        for step, rows in by_step.items():
+            bins[step // width * width] += rows
+    bins = dict(sorted(bins.items()))
+    centers = [start + width / 2 for start in bins]
+    fig, axes = plt.subplots(2, 4, figsize=(17, 7.4), sharex=True, sharey=True, layout="constrained")
+    for ax, (name, has) in zip(axes.flatten(), FORMATTING):
+        frequency, with_it, without = [], [], []
+        for rows in bins.values():
+            typical = {level: sum(r["tokens"] for r in rows if r["level"] == level) / sum(r["level"] == level for r in rows) for level in data}
+            flags = [has(r) if has else r["tokens"] > typical[r["level"]] for r in rows]
+            sides = [[newline(r) for r, flag in zip(rows, flags) if flag == side] for side in (True, False)]
+            frequency.append(sum(flags) / len(rows))
+            with_it.append(sum(sides[0]) / len(sides[0]) if len(sides[0]) >= 20 else float("nan"))
+            without.append(sum(sides[1]) / len(sides[1]) if len(sides[1]) >= 20 else float("nan"))
+        ax.fill_between(centers, frequency, color="0.85", label="Responses with the feature")
+        ax.plot(centers, with_it, "o-", color=PALETTE[1], markersize=4, label="Newline use, with the feature")
+        ax.plot(centers, without, "o-", color=PALETTE[0], markersize=4, label="Newline use, without it")
+        ax.set_title(name)
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 1.03)
+    for ax in axes[1]:
+        ax.set_xlabel("Training step")
+    fig.legend(*axes[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=3)
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-formatting.png", dpi=150)
+
+
 def advantages(rows: list[dict]) -> list[float]:
     """Each response's GRPO advantage: reward minus its puzzle group's mean, over the group's standard deviation."""
     groups = defaultdict(list)
@@ -753,7 +804,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
-        "--okay": plot_okay, "--push": plot_push, "--advantages": plot_advantages, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
+        "--okay": plot_okay, "--push": plot_push, "--formatting": plot_formatting, "--advantages": plot_advantages, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
