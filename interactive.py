@@ -268,6 +268,7 @@ function draw() {
     const col = domains[i % 2], row = rows[Math.floor(i / 2)];
     layout[`xaxis${n}`] = { domain: col, anchor: `y${n}`, range: [0, 200], title: i >= 2 ? "Training step" : "", showgrid: false, zeroline: false };
     layout[`yaxis${n}`] = { domain: row, anchor: x, side: "right", showgrid: false, zeroline: false, showticklabels: false, ticks: "", range: [0, 1] };
+    traces.push({ x: [null], y: [null], xaxis: x, yaxis: `y${n}`, showlegend: false, hoverinfo: "skip" });
     kinds.forEach((kind, j) => {
       const id = j === 0 ? n : 10 + n, members = lines.filter(line => line.kind === kind);
       const color = members.length === 1 ? members[0].color : "#555555", shown = i % 2 === 1 || (j === 0 && !showLength);
