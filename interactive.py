@@ -122,7 +122,8 @@ PAGE = """<!doctype html>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
 <style>
   :root { --ink: #1f1f1f; --muted: #666; --line: #d0d0d0; --surface: #ffffff; --accent: #2a78d6; }
-  body { margin: 0; padding: 16px; background: var(--surface); color: var(--ink); font-family: "DejaVu Serif", Georgia, serif; }
+  html, body { overflow: hidden; }
+  body { margin: 0; padding: 16px 16px 0; background: var(--surface); color: var(--ink); font-family: "DejaVu Serif", Georgia, serif; }
   h1 { font-weight: normal; font-size: 22px; margin: 0 0 12px; }
   .controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 8px; }
   .toggle button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
@@ -137,7 +138,7 @@ PAGE = """<!doctype html>
   .chip button { font: inherit; border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 4px; font-size: 16px; line-height: 1; }
   select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); max-width: 100%; }
   label { color: var(--muted); margin-right: 6px; }
-  #plot { width: 100%; }
+  #plot { width: 100%; display: block; overflow: hidden; }
 </style>
 </head>
 <body>
@@ -290,7 +291,7 @@ function draw() {
     font: FONT, paper_bgcolor: "#ffffff", plot_bgcolor: "#ffffff", hovermode: "x", showlegend: true,
     legend: { orientation: "h", x: 0.5, xanchor: "center", yref: "container", y: 0, yanchor: "bottom", bordercolor: "#000", borderwidth: 1 },
     margin: { l: 70, r: 40, t: 40, b: 110 }, annotations: [], autosize: true,
-    height: Math.max(520, window.innerHeight - document.getElementById("plot").getBoundingClientRect().top - 8),
+    height: Math.max(360, Math.floor(window.innerHeight - document.getElementById("plot").getBoundingClientRect().top - 8)),
   };
   Object.keys(levels).forEach((level, i) => {
     const n = i + 1, x = `x${n}`, tokens = `y${60 + n}`, first = i === 0, shown = i % 2 === 1;
