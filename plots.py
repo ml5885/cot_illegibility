@@ -6,6 +6,7 @@ uv run --with matplotlib plots.py --lengths RUN                   completion len
 uv run --with matplotlib plots.py --newlines RUN                  share of completions with a newline, by outcome
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
+uv run --with matplotlib plots.py --push RUN                      which way the reward pushes newlines and length, step by step
 uv run --with matplotlib plots.py --newline-correlation RUN       correlation of using a newline with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
@@ -518,6 +519,50 @@ def plot_templates(run: str):
     fig.savefig(f"figures/{run}-templates.png", dpi=130)
 
 
+def reward_push(rows: list[dict], feature) -> float:
+    """Mean over a step's samples of advantage times the feature's deviation from its group mean, with the
+    advantage standardized within each puzzle's group as GRPO does. Positive: the update favours the feature."""
+    groups = defaultdict(list)
+    for row in rows:
+        groups[row["prompt"]].append(row)
+    total = 0.0
+    for group in groups.values():
+        rewards, values = [r["reward"] for r in group], [feature(r) for r in group]
+        mean_reward, mean_value = sum(rewards) / len(group), sum(values) / len(group)
+        spread = (sum((x - mean_reward) ** 2 for x in rewards) / len(group)) ** 0.5
+        if spread:
+            total += sum((x - mean_reward) / (spread + 1e-4) * (v - mean_value) for x, v in zip(rewards, values))
+    return total / len(rows)
+
+
+def plot_push(run: str):
+    data = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    width = 10
+    typical = {level: sum(r["tokens"] for rows in by_step.values() for r in rows) / sum(map(len, by_step.values())) for level, by_step in data.items()}
+    features = [
+        (newline, "Completions with a newline", "{x:.0%}"),
+        (lambda row: row["tokens"] / typical[row["level"]], "Relative completion length", "{x:.2f}"),
+    ]
+    steps = sorted({step for by_step in data.values() for step in by_step})
+    pooled = {step: [row for by_step in data.values() for row in by_step.get(step, [])] for step in steps}
+    fig, axes = plt.subplots(2, 2, figsize=(12, 7), sharex=True, layout="constrained")
+    for (top, bottom), (feature, title, tick_format) in zip(axes.T, features):
+        top.plot(*smoothed(pooled, feature), color="0.2", linewidth=2)
+        top.set_title(title, fontsize=12)
+        top.yaxis.set_major_formatter(tick_format)
+        starts = range(0, steps[-1] + 1, width)
+        push = [sum(reward_push(pooled[s], feature) for s in range(a, a + width) if s in pooled) / width for a in starts]
+        bottom.bar([a + width / 2 for a in starts], push, width - 2, color=[PALETTE[0] if v >= 0 else PALETTE[1] for v in push])
+        bottom.axhline(0, color="black", linewidth=0.8)
+        bottom.set_title("Reward's push on it (above zero: favoured)", fontsize=12)
+        bottom.set_xlabel("Training step")
+    axes[0, 0].set_ylim(0, 1.03)
+    fig.suptitle(model)
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-push.png", dpi=150)
+
+
 def opens_with_okay(row: dict) -> float:
     return float(row["completion"].lstrip().startswith("Okay"))
 
@@ -657,7 +702,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
-        "--okay": plot_okay, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
+        "--okay": plot_okay, "--push": plot_push, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
