@@ -155,7 +155,7 @@ const runNames = Object.keys(DATA);
 const sample = Object.values(Object.values(DATA)[0].levels)[0];
 const KINDS = {
   share: { label: "Share of completions", names: Object.keys(sample.measures).concat(["Cut off at the token limit"]) },
-  advantage: { label: "Mean advantage", names: Object.keys(sample.advantage) },
+  advantage: { label: "Advantage gap (with minus without)", names: Object.keys(sample.advantage) },
 };
 const COLORS = ["#eb6834", "#1baf7a", "#e87ba4", "#eda100", "#008300", "#8a5cd6"];
 const MAX_LINES = COLORS.length;
@@ -193,7 +193,22 @@ add.onchange = () => {
   draw();
 };
 
-function label(line) { return line.kind === "advantage" ? `Advantage: ${line.name}` : line.name; }
+function label(line) { return line.kind === "advantage" ? `Advantage gap: ${line.name}` : line.name; }
+
+// Mean advantage with the feature minus without it, and the standard error of that difference.
+function gap(a) {
+  const both = i => a.with[i] !== null && a.without[i] !== null;
+  return {
+    x: a.x,
+    y: a.x.map((_, i) => both(i) ? a.with[i] - a.without[i] : null),
+    error: a.x.map((_, i) => both(i) ? Math.hypot(a.with_error[i], a.without_error[i]) : null),
+  };
+}
+function gapLabel(name) {
+  if (name === "Length") return "longer minus shorter";
+  if (name === "Cut off at the token limit") return "cut off minus not";
+  return `with minus without ${name[0].toLowerCase()}${name.slice(1)}`;
+}
 
 function renderChips() {
   const box = document.getElementById("chips");
@@ -235,8 +250,8 @@ function tooltip(p, step) {
   for (const line of lines) {
     const dot = `<span style="color:${line.color}">●</span>`;
     if (line.kind === "advantage") {
-      const a = d.advantage[line.name];
-      rows.push(`${dot} ${a.yes}: ${signed(at(a.x, a.with, step))}`, `${dot} ${a.no}: ${signed(at(a.x, a.without, step))}`);
+      const g = gap(d.advantage[line.name]);
+      rows.push(`${dot} Advantage gap, ${gapLabel(line.name)}: ${signed(at(g.x, g.y, step))}`);
     } else if (line.name === "Cut off at the token limit") {
       rows.push(`${dot} Cut off: ${percent(at(d.centers, d.cut, step))}`);
     } else {
@@ -278,19 +293,17 @@ function draw() {
       layout[`yaxis${id}`] = {
         ...(j === 0 ? { domain: row, anchor: x } : { overlaying: `y${n}`, anchor: "free", position: Math.min(col[1] + GAP * j, 1) }),
         side: "right", showgrid: j === 0 && !showLength, gridcolor: "#ececec", showline: shown, linecolor: color, showticklabels: shown, ticks: shown ? "outside" : "",
-        tickfont: { color, size: 11 }, title: shown ? { text: kind === "advantage" ? "Mean advantage" : "Share", font: { color, size: 11 }, standoff: 2 } : "",
+        tickfont: { color, size: 11 }, title: shown ? { text: kind === "advantage" ? "Advantage gap" : "Share", font: { color, size: 11 }, standoff: 2 } : "",
         ...scale,
       };
     });
     lines.forEach(line => {
       const j = kinds.indexOf(line.kind), axis = `y${j === 0 ? n : 10 + n}`;
       if (line.kind === "advantage") {
-        const a = d.advantage[line.name];
-        for (const [key, dash, side] of [["with", "solid", "yes"], ["without", "dash", "no"]]) {
-          traces.push({ x: a.x, y: a[key], error_y: { type: "data", array: a[`${key}_error`], color: line.color, thickness: 1, width: 2 },
-            mode: "lines+markers", line: { color: line.color, width: 2, dash }, marker: { size: 5 }, xaxis: x, yaxis: axis,
-            name: a[side], legendgroup: `${line.name}${key}`, showlegend: first, hoverinfo: "none" });
-        }
+        const g = gap(d.advantage[line.name]);
+        traces.push({ x: g.x, y: g.y, error_y: { type: "data", array: g.error, color: line.color, thickness: 1, width: 2 },
+          mode: "lines+markers", line: { color: line.color, width: 2 }, marker: { size: 5 }, xaxis: x, yaxis: axis,
+          name: `Advantage gap, ${gapLabel(line.name)}`, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
       } else if (line.name === "Cut off at the token limit") {
         traces.push({ type: "bar", x: d.centers, y: d.cut, marker: { color: line.color, opacity: 0.8 }, width: 8, xaxis: x, yaxis: axis,
           name: line.name, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
