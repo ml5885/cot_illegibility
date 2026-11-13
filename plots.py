@@ -338,6 +338,11 @@ EXAMPLES = {
         (4, 100, 'Step 100\n"1. Swap the contents of boxes D and A:\nThe key, being in box D, will move to box A.\nSo now, the key is in box A."'),
         (4, 187, 'Step 187\n"5. Swap the contents of boxes A and E:\nThe key, initially in E, will move to box A."'),
     ],
+    "swaps-7b-tags-long": [
+        (4, 6, 'Step 6\n"2. Swap the contents of boxes F and A.\nNow, the key moves from F to A."'),
+        (4, 140, 'Step 140\n"1. First swap: Swap the contents of boxes F and B.\nSince the key is currently in box F, swapping F and B\nwould move the key from F to B.\nSo, after this swap, the key should be in box B."'),
+        (4, 195, 'Step 195\n"2. Swap the contents of boxes B and D:\nThe key is currently in box D, so swapping boxes B and D\nwould move the key from box D to box B.\nSo, the key is now in box B."'),
+    ],
     "swaps-7b-tags-2and4": [
         (4, 5, 'Step 5\n"4. Swap F and A:\nThe contents of F and A are exchanged.\nThe key moves from A to F."'),
         (4, 88, 'Step 88\n"4. Swap the contents of boxes A and F:\nThe key was in F before this swap,\nso it moves to A. Now, the key is in box A."'),
@@ -394,7 +399,9 @@ def plot_traces(run: str):
     count = lambda text: len(tokenizer(text, add_special_tokens=False)["input_ids"])
     held_out = load(run)["eval"]
     level = max(held_out)
-    steps = [s for s in sorted(held_out[level]) if s >= 40]
+    accuracy = {s: sum(r["reward"] for r in rows) / len(rows) for s, rows in held_out[level].items()}
+    start = min(s for s, a in accuracy.items() if a >= 0.7)
+    steps = [s for s in sorted(held_out[level]) if s >= start]
     solved = set.intersection(*({r["prompt"] for r in held_out[level][s] if r["reward"]} for s in steps))
     traces = {s: [trace_parts(r, count) for r in held_out[level][s] if r["prompt"] in solved] for s in steps}
     mean = lambda values: sum(values) / len(values)
