@@ -211,6 +211,7 @@ function renderChips() {
 
 const FONT = { family: '"DejaVu Serif", Georgia, serif', color: "#1f1f1f", size: 13 };
 const BLUE = "#2a78d6", GAP = 0.055;
+let panels = [];
 
 function draw() {
   [...runs.children].forEach((b, i) => b.classList.toggle("on", runNames[i] === run));
@@ -219,6 +220,7 @@ function draw() {
   const { limit, levels } = DATA[run];
   const extra = Math.max(lines.length - 1, 0);
   const domains = [[0, 0.46], [0.54, 1 - GAP * extra]], rows = [[0.56, 1], [0, 0.44]];
+  panels = [];
   const traces = [], layout = {
     font: FONT, paper_bgcolor: "#ffffff", plot_bgcolor: "#ffffff", hovermode: "x unified", showlegend: true,
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.13, bordercolor: "#000", borderwidth: 1 },
@@ -257,6 +259,7 @@ function draw() {
     });
     layout[`yaxis${60 + n}`] = { overlaying: `y${n}`, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
       title: i % 2 ? "" : "Completion tokens" };
+    panels.push({ x, row });
     layout.annotations.push({ text: `${level} swaps`, x: (col[0] + col[1]) / 2, y: row[1] + 0.02, xref: "paper", yref: "paper", showarrow: false, font: { size: 15 } });
     traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "band" });
     traces.push({ x: d.centers, y: d.high, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, fill: "tonexty",
@@ -270,7 +273,16 @@ function draw() {
   });
   Plotly.react("plot", traces, layout, { responsive: true, displaylogo: false });
 }
+
+const plot = document.getElementById("plot");
+function cursor(x) {
+  const shapes = x === null ? [] : panels.map(p => ({ type: "line", xref: p.x, x0: x, x1: x, yref: "paper", y0: p.row[0], y1: p.row[1],
+    line: { color: "#8a8a8a", width: 1 }, layer: "above" }));
+  Plotly.relayout(plot, { shapes });
+}
 draw();
+plot.on("plotly_hover", event => cursor(event.xvals ? event.xvals[0] : event.points[0].x));
+plot.on("plotly_unhover", () => cursor(null));
 </script>
 </body>
 </html>
