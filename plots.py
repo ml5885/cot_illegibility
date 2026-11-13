@@ -212,19 +212,21 @@ def plot_length_signal(run: str):
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
 
 
-def plot_failure(run: str):
-    """Accuracy and length, then the two ways a response can go wrong: the list of swaps, and tracking the key through it."""
+def error_panels() -> list:
+    return [
+        ("Accuracy", lambda rs: sum(map(accuracy, rs)) / len(rs)),
+        ("Responses with the right list of swaps", lambda rs: sum(step_counts(r) == (0, 0) for r in rs) / len(rs)),
+        ("Swaps where the stated key location is right", right_share),
+    ]
+
+
+def plot_by_level(run: str, panels: list, shape: tuple[int, int], size: tuple[float, float], suffix: str):
+    """One panel per measure, one line per swap count: training samples (5-step mean), or held-out checkpoints for
+    swap counts the run never trains on."""
     held_out = load(run)["eval"]
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
-    list_right = lambda rs: sum(step_counts(r) == (0, 0) for r in rs) / len(rs)
-    panels = [
-        ("Accuracy", lambda rs: sum(map(accuracy, rs)) / len(rs)),
-        ("Completion length in tokens", lambda rs: sum(map(tokens, rs)) / len(rs)),
-        ("Responses with the right list of swaps", list_right),
-        ("Swaps where the stated key location is right", right_share),
-    ]
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, layout="constrained")
+    fig, axes = plt.subplots(*shape, figsize=size, sharex=True, layout="constrained", squeeze=False)
     for ax, (title, measure) in zip(axes.flatten(), panels):
         for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(rows | held_out)):
             if level in rows:
@@ -236,17 +238,28 @@ def plot_failure(run: str):
                 steps = sorted(held_out[level])
                 ax.plot(steps, [measure(held_out[level][s]) for s in steps], color=color, label=f"{level} swaps, held-out only")
         ax.set_title(title)
-        if title != "Completion length in tokens":
+        if title.startswith("Completion length"):
+            ax.set_ylim(0)
+        else:
             ax.yaxis.set_major_formatter("{x:.0%}")
             ax.set_ylim(0, 1.03)
-        else:
-            ax.set_ylim(0)
-    for ax in axes[1]:
+    for ax in axes[-1]:
         ax.set_xlabel("Training step")
     axes[0, 0].legend(loc="lower right")
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-failure.png", dpi=150)
+    fig.savefig(f"figures/{run}-{suffix}.png", dpi=150)
+
+
+def plot_failure(run: str):
+    """Accuracy and length, then the two ways a response can go wrong: the list of swaps, and tracking the key through it."""
+    panels = error_panels()
+    panels.insert(1, ("Completion length in tokens", lambda rs: sum(map(tokens, rs)) / len(rs)))
+    plot_by_level(run, panels, (2, 2), (11, 8), "failure")
+
+
+def plot_error_analysis(run: str):
+    plot_by_level(run, error_panels(), (1, 3), (15, 4.6), "error-analysis")
 
 
 def correlation(rows: list[dict], metric, within_puzzle: bool) -> tuple[float, float]:
@@ -1013,7 +1026,7 @@ if __name__ == "__main__":
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
     OTHER = {
-        "--length-signal": plot_length_signal, "--failure": plot_failure, "--token-limit": plot_token_limit,
+        "--length-signal": plot_length_signal, "--failure": plot_failure, "--error-analysis": plot_error_analysis, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
         "--okay": plot_okay, "--push": plot_push, "--formatting": plot_formatting, "--advantages": plot_advantages, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }
