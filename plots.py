@@ -704,14 +704,15 @@ def plot_cutoffs(runs: list[str]):
 
 ADVANTAGE_SPLITS = {
     "--length-advantage": (
+        tokens, "Completion length (tokens)",
         lambda row, group: row["tokens"] > sum(r["tokens"] for r in group) / len(group), "Longer than its group's mean", "Shorter", "length-advantage",
     ),
-    "--newline-advantage": (lambda row, group: bool(newline(row)), "With a newline", "Without", "newline-advantage"),
+    "--newline-advantage": (newline, "Completions with a newline", lambda row, group: bool(newline(row)), "With a newline", "Without", "newline-advantage"),
 }
 
 
-def plot_advantage_split(runs: list[str], has, yes: str, no: str, name: str):
-    """Newline use, and the mean advantage of responses with and without a feature, one column per run."""
+def plot_advantage_split(runs: list[str], feature, feature_label: str, has, yes: str, no: str, name: str):
+    """A feature over training, and the mean advantage of responses with and without it, one column per run."""
     width = 10
     fig, axes = plt.subplots(2, len(runs), figsize=(5.5 * len(runs), 7), sharex=True, layout="constrained", squeeze=False)
     for (top, bottom), run in zip(axes.T, runs):
@@ -720,9 +721,9 @@ def plot_advantage_split(runs: list[str], has, yes: str, no: str, name: str):
         steps = sorted({step for by_step in data.values() for step in by_step})
         pooled = {step: [row for by_step in data.values() for row in by_step.get(step, [])] for step in steps}
         scored = {step: group_advantages(rows) for step, rows in pooled.items()}
-        top.plot(*smoothed(pooled, newline), color="#eb6834", linewidth=2)
-        top.set_ylim(0, 1)
-        top.yaxis.set_major_formatter("{x:.0%}")
+        top.plot(*smoothed(pooled, feature), color="0.2", linewidth=2)
+        if feature is newline:
+            top.yaxis.set_major_formatter("{x:.0%}")
         top.set_title(f"{limit:,}-token limit")
         starts = range(0, steps[-1] + 1, width)
         for side, label, color in [(True, yes, PALETTE[1]), (False, no, PALETTE[0])]:
@@ -733,9 +734,12 @@ def plot_advantage_split(runs: list[str], has, yes: str, no: str, name: str):
         bottom.axhline(0, color="gray", linestyle=":", linewidth=1)
         bottom.set_ylim(-1.5, 1.5)
         bottom.set_xlabel("Training step")
+    top_max = 1 if feature is newline else max(ax.get_ylim()[1] for ax in axes[0])
+    for ax in axes[0]:
+        ax.set_ylim(0, top_max)
     for ax in axes[:, 1:].flat:
         ax.tick_params(labelleft=False)
-    axes[0, 0].set_ylabel("Completions with a newline")
+    axes[0, 0].set_ylabel(feature_label)
     axes[1, 0].set_ylabel("Mean advantage")
     fig.align_ylabels(axes[:, 0])
     axes[1, 0].legend(loc="upper left", fontsize=10)
