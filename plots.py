@@ -8,6 +8,7 @@ uv run --with matplotlib plots.py --length-signal RUN             what the rewar
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
 uv run --with matplotlib plots.py --advantages RUN                distribution of GRPO advantages over training
 uv run --with matplotlib plots.py --formatting RUN                formatting features over training, and newline use with and without each
+uv run --with matplotlib plots.py --lead RUN [RUN ...]            does the advantage gap for newlines predict the next change in their use
 uv run --with matplotlib plots.py --push RUN                      advantage-weighted difference in newlines and length within puzzles
 uv run --with matplotlib plots.py --newline-correlation RUN       correlation of using a newline with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
@@ -629,6 +630,38 @@ def group_advantages(rows: list[dict]) -> list[tuple[dict, float, list[dict]]]:
     return out
 
 
+def plot_lead(runs: list[str]):
+    """One point per 5-step window in which newline use still varies (between 1% and 99% of responses)."""
+    width = 5
+    fig, ax = plt.subplots(figsize=(7, 5), layout="constrained")
+    for run, color in zip(runs, PALETTE):
+        data = load(run)["train"]
+        steps = sorted({step for by_step in data.values() for step in by_step})
+        pooled = [[row for by_step in data.values() for row in by_step.get(step, [])] for step in steps]
+        rate = [sum(map(newline, rows)) / len(rows) for rows in pooled]
+        gap = [
+            sum(a * (newline(row) - sum(map(newline, group)) / len(group)) for row, a, group in group_advantages(rows)) / len(rows)
+            for rows in pooled
+        ]
+        window = lambda values: [sum(values[i : i + width]) / width for i in range(0, len(values) - width + 1, width)]
+        rates, gaps = window(rate), window(gap)
+        points = [(gaps[i], rates[i + 1] - rates[i]) for i in range(len(rates) - 1) if 0.01 < rates[i] < 0.99]
+        xs, ys = zip(*points)
+        mean_x, mean_y = sum(xs) / len(xs), sum(ys) / len(ys)
+        r = sum((x - mean_x) * (y - mean_y) for x, y in points) / (sum((x - mean_x) ** 2 for x in xs) * sum((y - mean_y) ** 2 for y in ys)) ** 0.5
+        trained = "/".join(map(str, sorted(data)))
+        ax.scatter(xs, ys, color=color, s=36, label=f"Trained on {trained} swaps (r = {r:+.2f}, {len(points)} windows)")
+    ax.axhline(0, color="gray", linestyle=":", linewidth=1)
+    ax.axvline(0, color="gray", linestyle=":", linewidth=1)
+    ax.set_xlabel("Advantage gap for newline responses in a 5-step window")
+    ax.set_ylabel("Change in newline use into the next window")
+    ax.yaxis.set_major_formatter("{x:+.0%}")
+    ax.legend(loc="lower right", fontsize=10)
+    fig.suptitle(json.loads(Path("runs", runs[0], "args.json").read_text())["model"].split("/")[-1])
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig("figures/newline-lead.png", dpi=150)
+
+
 def plot_push(run: str):
     data = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
@@ -794,6 +827,9 @@ def plot_formats(model: str):
 if __name__ == "__main__":
     if sys.argv[1] == "--formats":
         plot_formats(sys.argv[2])
+        sys.exit()
+    if sys.argv[1] == "--lead":
+        plot_lead(sys.argv[2:])
         sys.exit()
     if sys.argv[1] in CORRELATIONS:
         plot_correlation(sys.argv[2], *CORRELATIONS[sys.argv[1]])
