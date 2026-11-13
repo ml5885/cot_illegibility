@@ -311,6 +311,43 @@ def plot_mismatch(run: str):
     plot_by_level(run, panels, (1, 2), (11, 4.6), "mismatch")
 
 
+def plot_newline_within(runs: list[str]):
+    """Newline use within each opening and within list and non-list responses, against each group's share."""
+    width = 10
+    numbered = lambda r: bool(re.search(r"(?:^|\s)1[.)]\s.*\s2[.)]\s", " ".join(r["completion"].split())))
+    splits = [
+        ("By opening", lambda r: {"Let's": 'Opens with "Let\'s"', "To": 'Opens with "To"'}.get(first_word(r), "Other opening")),
+        ("By list format", lambda r: "Numbered list" if numbered(r) else "No numbered list"),
+    ]
+    colors = {'Opens with "Let\'s"': PALETTE[0], 'Opens with "To"': PALETTE[2], "Other opening": "0.5", "Numbered list": PALETTE[0], "No numbered list": PALETTE[2]}
+    fig, axes = plt.subplots(len(runs), 2, figsize=(11, 4.2 * len(runs)), sharey=True, layout="constrained", squeeze=False)
+    for row_axes, run in zip(axes, runs):
+        rows = [(step, r) for by_step in load(run)["train"].values() for step, rs in by_step.items() for r in rs]
+        limit = json.loads(Path("runs", run, "args.json").read_text())["max_tokens"]
+        for ax, (title, key) in zip(row_axes, splits):
+            groups = defaultdict(lambda: defaultdict(list))
+            totals = Counter()
+            for step, r in rows:
+                b = step // width * width
+                groups[key(r)][b].append("\n" in r["completion"])
+                totals[b] += 1
+            for name, by_bin in groups.items():
+                xs = sorted(totals)
+                rate = [sum(by_bin[x]) / len(by_bin[x]) if len(by_bin[x]) >= 10 else float("nan") for x in xs]
+                share = [len(by_bin[x]) / totals[x] for x in xs]
+                ax.plot([x + width / 2 for x in xs], rate, color=colors[name], linewidth=2, label=f"{name}: with a newline")
+                ax.plot([x + width / 2 for x in xs], share, color=colors[name], linewidth=1, alpha=0.4, label=f"{name}: share of responses")
+            ax.set_title(f"{limit:,}-token limit, {title.lower()}")
+            ax.set_ylim(0, 1.03)
+            ax.yaxis.set_major_formatter("{x:.0%}")
+            ax.legend(loc="center right", fontsize=8)
+    for ax in axes[-1]:
+        ax.set_xlabel("Training step")
+    fig.suptitle(json.loads(Path("runs", runs[0], "args.json").read_text())["model"].split("/")[-1])
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig("figures/newline-within.png", dpi=150)
+
+
 def plot_error_analysis(run: str):
     plot_by_level(run, error_panels(), (1, 3), (15, 4.6), "error-analysis")
 
@@ -1062,6 +1099,9 @@ if __name__ == "__main__":
         sys.exit()
     if sys.argv[1] == "--lead":
         plot_lead(sys.argv[2:])
+        sys.exit()
+    if sys.argv[1] == "--newline-within":
+        plot_newline_within(sys.argv[2:])
         sys.exit()
     if sys.argv[1] == "--list-errors":
         plot_list_errors(sys.argv[2:])
