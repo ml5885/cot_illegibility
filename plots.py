@@ -267,6 +267,8 @@ def plot_token_limit(run: str):
         bins = [sorted(r["tokens"] for step in range(start, start + half) for r in rows[level].get(step, [])) for start in starts]
         top.bar(centers, [sum(t >= limit - 2 for t in b) / len(b) for b in bins], half - 2, color="#eda100", label="Cut off")
         right = ax.twinx()
+        ax.set_zorder(right.get_zorder() + 1)
+        ax.patch.set_visible(False)
         right.plot(*smoothed(rows[level], newline), color="#eb6834", linewidth=2, label="Completions with a newline")
         right.set_ylim(0, 1.06)
         right.yaxis.set_major_formatter("{x:.0%}")
