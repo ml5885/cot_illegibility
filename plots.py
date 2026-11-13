@@ -695,6 +695,55 @@ def plot_cutoffs(runs: list[str]):
     fig.savefig("figures/cutoffs-newlines.png", dpi=150)
 
 
+def plot_length_push(runs: list[str]):
+    """Per step, the sum over responses of advantage × (length − group mean length), sign flipped so up means shorter."""
+    width = 10
+    sources = [("Groups with a cut-off answer", "#eda100"), ("Groups with other wrong answers only", "#2a78d6")]
+    fig, axes = plt.subplots(2, len(runs), figsize=(5.5 * len(runs), 7), sharex=True, layout="constrained", squeeze=False)
+    for (top, bottom), run in zip(axes.T, runs):
+        data = load(run)["train"]
+        limit = json.loads(Path("runs", run, "args.json").read_text())["max_tokens"]
+        pooled = defaultdict(list)
+        for by_step in data.values():
+            for step, rows in by_step.items():
+                pooled[step] += rows
+        top.plot(*smoothed(pooled, newline), color="#eb6834", linewidth=2)
+        top.set_ylim(0, 1)
+        top.yaxis.set_major_formatter("{x:.0%}")
+        top.set_title(f"{limit:,}-token limit")
+        push = defaultdict(lambda: [0.0, 0.0])
+        for step, rows in pooled.items():
+            for row, advantage, group in group_advantages(rows):
+                cut = any(r["tokens"] >= limit - 2 for r in group)
+                mean = sum(r["tokens"] for r in group) / len(group)
+                push[step // width * width][0 if cut else 1] -= advantage * (row["tokens"] - mean) / width
+        starts = sorted(push)
+        centers = [s + width / 2 for s in starts]
+        below = [0.0] * len(starts)
+        for i, (label, color) in enumerate(sources):
+            values = [push[s][i] for s in starts]
+            base = [b if v >= 0 else 0 for b, v in zip(below, values)]
+            bottom.bar(centers, values, width - 2, bottom=base, color=color, label=label)
+            below = [b + max(v, 0) for b, v in zip(below, values)]
+        bottom.axhline(0, color="black", linewidth=0.8)
+        bottom.grid(axis="y", color="0.9", linewidth=0.8)
+        bottom.set_axisbelow(True)
+        bottom.set_xlabel("Training step")
+        bottom.set_ylim(-400, 1000)
+        for center, total in zip(centers, below):
+            if total > 1000:
+                bottom.text(center, 985, f"{total / 1000:.1f}k", ha="center", va="top", fontsize=7, color="white")
+    for ax in axes[:, 1:].flat:
+        ax.tick_params(labelleft=False)
+    axes[0, 0].set_ylabel("Completions with a newline")
+    axes[1, 0].set_ylabel("Push toward shorter")
+    fig.align_ylabels(axes[:, 0])
+    axes[1, 0].legend(loc="upper right", fontsize=10)
+    fig.suptitle(json.loads(Path("runs", runs[0], "args.json").read_text())["model"].split("/")[-1])
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig("figures/length-push.png", dpi=150)
+
+
 def plot_push(run: str):
     data = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
@@ -866,6 +915,9 @@ if __name__ == "__main__":
         sys.exit()
     if sys.argv[1] == "--cutoffs":
         plot_cutoffs(sys.argv[2:])
+        sys.exit()
+    if sys.argv[1] == "--length-push":
+        plot_length_push(sys.argv[2:])
         sys.exit()
     if sys.argv[1] in CORRELATIONS:
         plot_correlation(sys.argv[2], *CORRELATIONS[sys.argv[1]])
