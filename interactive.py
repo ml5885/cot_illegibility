@@ -163,10 +163,13 @@ let run = runNames[0], showLength = true;
 document.getElementById("length").onchange = event => { showLength = event.target.checked; draw(); };
 let lines = [{ kind: "share", name: "Completions with a newline", color: COLORS[0] }];
 
+const BOTH = "both", STYLES = [{ dash: "solid", symbol: "circle" }, { dash: "dash", symbol: "circle-open" }];
+const runLabel = name => `${DATA[name].limit.toLocaleString()}-token limit`;
+const runOptions = runNames.concat([BOTH]);
 const runs = document.getElementById("runs");
-for (const name of runNames) {
+for (const name of runOptions) {
   const b = document.createElement("button");
-  b.textContent = `${DATA[name].limit.toLocaleString()}-token limit`;
+  b.textContent = name === BOTH ? "Both runs" : runLabel(name);
   b.onclick = () => { run = name; draw(); };
   runs.appendChild(b);
 }
@@ -242,20 +245,24 @@ const percent = v => v === null ? "–" : `${Math.round(v * 100)}%`;
 const signed = v => v === null ? "–" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`;
 
 function tooltip(p, step) {
-  const d = p.d, rows = [`<b>Step ${step}</b>`];
-  if (showLength) rows.push(
-    `Median: ${at(d.centers, d.median, step) ?? "–"} tokens`,
-    `5th to 95th percentile: ${at(d.centers, d.low, step) ?? "–"} to ${at(d.centers, d.high, step) ?? "–"}`,
-    `Longest: ${at(d.centers, d.longest, step) ?? "–"}`);
-  for (const line of lines) {
-    const dot = `<span style="color:${line.color}">●</span>`;
-    if (line.kind === "advantage") {
-      const g = gap(d.advantage[line.name]);
-      rows.push(`${dot} Advantage gap, ${gapLabel(line.name)}: ${signed(at(g.x, g.y, step))}`);
-    } else if (line.name === "Cut off at the token limit") {
-      rows.push(`${dot} Cut off: ${percent(at(d.centers, d.cut, step))}`);
-    } else {
-      rows.push(`${dot} ${line.name}: ${percent(at(d.steps, d.measures[line.name], step))}`);
+  const overlay = p.runs.length > 1, rows = [`<b>Step ${step}</b>`];
+  for (const { run: name, d } of p.runs) {
+    if (overlay) rows.push(`<i>${runLabel(name)}</i>`);
+    if (showLength) {
+      rows.push(`Median: ${at(d.centers, d.median, step) ?? "–"} tokens`);
+      if (!overlay) rows.push(`5th to 95th percentile: ${at(d.centers, d.low, step) ?? "–"} to ${at(d.centers, d.high, step) ?? "–"}`);
+      rows.push(`Longest: ${at(d.centers, d.longest, step) ?? "–"}`);
+    }
+    for (const line of lines) {
+      const dot = `<span style="color:${line.color}">●</span>`;
+      if (line.kind === "advantage") {
+        const g = gap(d.advantage[line.name]);
+        rows.push(`${dot} Advantage gap, ${gapLabel(line.name)}: ${signed(at(g.x, g.y, step))}`);
+      } else if (line.name === "Cut off at the token limit") {
+        rows.push(`${dot} Cut off: ${percent(at(d.centers, d.cut, step))}`);
+      } else {
+        rows.push(`${dot} ${line.name}: ${percent(at(d.steps, d.measures[line.name], step))}`);
+      }
     }
   }
   const right = step > 110;
@@ -265,10 +272,11 @@ function tooltip(p, step) {
 }
 
 function draw() {
-  [...runs.children].forEach((b, i) => b.classList.toggle("on", runNames[i] === run));
+  [...runs.children].forEach((b, i) => b.classList.toggle("on", runOptions[i] === run));
   fillPicker();
   renderChips();
-  const { limit, levels } = DATA[run];
+  const active = run === BOTH ? runNames : [run], overlay = active.length > 1;
+  const limit = Math.max(...active.map(name => DATA[name].limit)), levels = DATA[active[0]].levels;
   const kinds = [...new Set(lines.map(line => line.kind))];
   const extra = Math.max(kinds.length - 1, 0);
   const domains = [[0, 0.46], [0.54, 1 - GAP * extra]], rows = [[0.56, 1], [0, 0.44]];
@@ -278,7 +286,7 @@ function draw() {
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.13, bordercolor: "#000", borderwidth: 1 },
     margin: { l: 70, r: 40, t: 40, b: 120 }, annotations: [],
   };
-  Object.entries(levels).forEach(([level, d], i) => {
+  Object.keys(levels).forEach((level, i) => {
     const n = i + 1, x = `x${n}`, tokens = `y${60 + n}`, first = i === 0, shown = i % 2 === 1;
     const col = domains[i % 2], row = rows[Math.floor(i / 2)];
     layout[`xaxis${n}`] = { domain: col, anchor: `y${n}`, range: [0, 200], title: i >= 2 ? "Training step" : "", showgrid: false, zeroline: false };
@@ -297,36 +305,49 @@ function draw() {
         ...scale,
       };
     });
-    lines.forEach(line => {
-      const j = kinds.indexOf(line.kind), axis = `y${j === 0 ? n : 10 + n}`;
-      if (line.kind === "advantage") {
-        const g = gap(d.advantage[line.name]);
-        traces.push({ x: g.x, y: g.y, error_y: { type: "data", array: g.error, color: line.color, thickness: 1, width: 2 },
-          mode: "lines+markers", line: { color: line.color, width: 2 }, marker: { size: 5 }, xaxis: x, yaxis: axis,
-          name: `Advantage gap, ${gapLabel(line.name)}`, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
-      } else if (line.name === "Cut off at the token limit") {
-        traces.push({ type: "bar", x: d.centers, y: d.cut, marker: { color: line.color, opacity: 0.8 }, width: 8, xaxis: x, yaxis: axis,
-          name: line.name, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
-      } else {
-        traces.push({ x: d.steps, y: d.measures[line.name], mode: "lines", line: { color: line.color, width: 2 }, xaxis: x, yaxis: axis,
-          name: line.name, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
-      }
+    const series = active.map(name => ({ run: name, d: DATA[name].levels[level] }));
+    series.forEach(({ run: name, d }, k) => {
+      const { dash, symbol } = STYLES[runNames.indexOf(name)], legend = first && k === 0;
+      lines.forEach(line => {
+        const j = kinds.indexOf(line.kind), axis = `y${j === 0 ? n : 10 + n}`;
+        if (line.kind === "advantage") {
+          const g = gap(d.advantage[line.name]);
+          traces.push({ x: g.x, y: g.y, error_y: { type: "data", array: g.error, color: line.color, thickness: 1, width: 2 },
+            mode: "lines+markers", line: { color: line.color, width: 2, dash }, marker: { size: 5, symbol }, xaxis: x, yaxis: axis,
+            name: `Advantage gap, ${gapLabel(line.name)}`, legendgroup: line.name, showlegend: legend, hoverinfo: "none" });
+        } else if (line.name === "Cut off at the token limit") {
+          traces.push({ type: "bar", x: d.centers, y: d.cut, width: 8, xaxis: x, yaxis: axis, offsetgroup: name,
+            marker: { color: line.color, opacity: overlay ? 0.6 : 0.8, pattern: { shape: k ? "/" : "" } },
+            name: line.name, legendgroup: line.name, showlegend: legend, hoverinfo: "none" });
+        } else {
+          traces.push({ x: d.steps, y: d.measures[line.name], mode: "lines", line: { color: line.color, width: 2, dash }, xaxis: x, yaxis: axis,
+            name: line.name, legendgroup: line.name, showlegend: legend, hoverinfo: "none" });
+        }
+      });
     });
-    panels.push({ x, row, col, d, level });
+    panels.push({ x, row, col, runs: series, level });
     layout.annotations.push({ text: `${level} swaps`, x: (col[0] + col[1]) / 2, y: row[1] + 0.02, xref: "paper", yref: "paper", showarrow: false, font: { size: 15 } });
     if (!showLength) return;
     layout[`yaxis${60 + n}`] = { overlaying: `y${n}`, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
       title: i % 2 ? "" : "Completion tokens" };
-    traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "band" });
-    traces.push({ x: d.centers, y: d.high, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, fill: "tonexty",
-      fillcolor: "rgba(42,120,214,0.25)", name: "5th to 95th percentile", legendgroup: "band", showlegend: first, hoverinfo: "skip" });
-    traces.push({ x: d.centers, y: d.median, xaxis: x, yaxis: tokens, mode: "lines", line: { color: BLUE, width: 2 }, name: "Median",
-      legendgroup: "median", showlegend: first, hoverinfo: "none" });
-    traces.push({ x: d.centers, y: d.longest, xaxis: x, yaxis: tokens, mode: "markers", marker: { color: "#595959", size: 6 }, name: "Longest",
-      legendgroup: "longest", showlegend: first, hoverinfo: "none" });
-    traces.push({ x: [0, 200], y: [limit, limit], xaxis: x, yaxis: tokens, mode: "lines", line: { color: "#000", dash: "dash", width: 1 },
-      name: "Token limit", legendgroup: "limit", showlegend: first, hoverinfo: "skip" });
+    series.forEach(({ run: name, d }, k) => {
+      const { dash, symbol } = STYLES[runNames.indexOf(name)], legend = first && k === 0, cap = DATA[name].limit;
+      traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "band" });
+      traces.push({ x: d.centers, y: d.high, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, fill: "tonexty",
+        fillcolor: `rgba(42,120,214,${overlay ? 0.14 : 0.25})`, name: "5th to 95th percentile", legendgroup: "band", showlegend: legend, hoverinfo: "skip" });
+      traces.push({ x: d.centers, y: d.median, xaxis: x, yaxis: tokens, mode: "lines", line: { color: BLUE, width: 2, dash }, name: "Median",
+        legendgroup: "median", showlegend: legend, hoverinfo: "none" });
+      traces.push({ x: d.centers, y: d.longest, xaxis: x, yaxis: tokens, mode: "markers", marker: { color: "#595959", size: 6, symbol }, name: "Longest",
+        legendgroup: "longest", showlegend: legend, hoverinfo: "none" });
+      traces.push({ x: [0, 200], y: [cap, cap], xaxis: x, yaxis: tokens, mode: "lines", line: { color: "#000", dash: "dash", width: 1 },
+        name: "Token limit", legendgroup: "limit", showlegend: legend, hoverinfo: "skip" });
+      if (overlay) layout.annotations.push({ text: cap.toLocaleString(), xref: x, x: 200, yref: tokens, y: cap, xanchor: "right", yanchor: "bottom",
+        showarrow: false, font: { size: 10, color: "#555" } });
+    });
   });
+  if (overlay) runNames.forEach((name, k) => traces.push({ x: [null], y: [null], xaxis: "x1", yaxis: "y1", mode: "lines+markers",
+    line: { color: "#444", width: 2, dash: STYLES[k].dash }, marker: { color: "#444", size: 6, symbol: STYLES[k].symbol }, name: runLabel(name),
+    legendgroup: `run${k}`, hoverinfo: "skip" }));
   titles = layout.annotations;
   Plotly.react("plot", traces, layout, { responsive: true, displaylogo: false });
 }
