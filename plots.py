@@ -6,6 +6,7 @@ uv run --with matplotlib plots.py --lengths RUN                   completion len
 uv run --with matplotlib plots.py --newlines RUN                  share of completions with a newline, by outcome
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
+uv run --with matplotlib plots.py --advantages RUN                distribution of GRPO advantages over training
 uv run --with matplotlib plots.py --push RUN                      advantage-weighted difference in newlines and length within puzzles
 uv run --with matplotlib plots.py --newline-correlation RUN       correlation of using a newline with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
@@ -519,6 +520,49 @@ def plot_templates(run: str):
     fig.savefig(f"figures/{run}-templates.png", dpi=130)
 
 
+def advantages(rows: list[dict]) -> list[float]:
+    """Each response's GRPO advantage: reward minus its puzzle group's mean, over the group's standard deviation."""
+    groups = defaultdict(list)
+    for row in rows:
+        groups[row["prompt"]].append(row["reward"])
+    values = []
+    for rewards in groups.values():
+        mean = sum(rewards) / len(rewards)
+        spread = (sum((x - mean) ** 2 for x in rewards) / (len(rewards) - 1)) ** 0.5
+        values += [(x - mean) / (spread + 1e-4) for x in rewards]
+    return values
+
+
+def plot_advantages(run: str):
+    data = load(run)["train"]
+    model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
+    steps = sorted({step for by_step in data.values() for step in by_step})
+    by_step = {step: advantages([row for level in data.values() for row in level.get(step, [])]) for step in steps}
+    windows = [(0, 20), (40, 60), (steps[-1] - 19, steps[-1] + 1)]
+    fig, (share, *hists) = plt.subplots(1, 4, figsize=(17, 4.2), layout="constrained")
+    nonzero = [sum(a != 0 for a in by_step[s]) / len(by_step[s]) for s in steps]
+    share.plot(steps, [sum(w := nonzero[max(0, i - WINDOW + 1) : i + 1]) / len(w) for i in range(len(steps))], color="0.2", linewidth=2)
+    share.set_title("Responses with a nonzero advantage")
+    share.set_xlabel("Training step")
+    share.yaxis.set_major_formatter("{x:.0%}")
+    share.set_ylim(0, 1.03)
+    edges = [-2.75 + 0.25 * i for i in range(23)]
+    for ax, (lo, hi) in zip(hists, windows):
+        values = [a for s in range(lo, hi) for a in by_step[s]]
+        kept = [a for a in values if a != 0]
+        ax.hist([a for a in kept if a < 0], bins=edges, weights=[1 / len(values)] * sum(a < 0 for a in kept), color=PALETTE[1], label="Incorrect")
+        ax.hist([a for a in kept if a > 0], bins=edges, weights=[1 / len(values)] * sum(a > 0 for a in kept), color=PALETTE[0], label="Correct")
+        ax.set_title(f"Steps {lo} to {hi - 1}")
+        ax.set_xlabel("Advantage")
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.set_ylim(0, 0.2)
+    hists[0].set_ylabel("Share of all responses")
+    hists[0].legend(loc="upper left")
+    fig.suptitle(f"{model}: GRPO advantages")
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig(f"figures/{run}-advantages.png", dpi=150)
+
+
 def advantage_weighted_difference(rows: list[dict], feature) -> float:
     """Mean over a step's samples of advantage times the feature's deviation from its group mean, with the
     advantage standardized within each puzzle's group as GRPO does. Positive: within a puzzle, the responses
@@ -703,7 +747,7 @@ if __name__ == "__main__":
     OTHER = {
         "--length-signal": plot_length_signal, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
-        "--okay": plot_okay, "--push": plot_push, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
+        "--okay": plot_okay, "--push": plot_push, "--advantages": plot_advantages, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }
     if sys.argv[1] in OTHER:
         OTHER[sys.argv[1]](sys.argv[2])
