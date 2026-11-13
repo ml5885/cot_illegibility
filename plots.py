@@ -6,6 +6,7 @@ uv run --with matplotlib plots.py --lengths RUN                   completion len
 uv run --with matplotlib plots.py --newlines RUN                  share of completions with a newline, by outcome
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
+uv run --with matplotlib plots.py --newline-correlation RUN       correlation of using a newline with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
 uv run --with matplotlib plots.py --tracking RUN                  per-swap tracking and standalone location statements, by swap count
@@ -20,7 +21,7 @@ import json
 import re
 import sys
 import textwrap
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -207,41 +208,47 @@ def plot_length_signal(run: str):
     fig.savefig(f"figures/{run}-length-signal.png", dpi=150)
 
 
-def correlation(rows: list[dict], within_puzzle: bool) -> tuple[float, float]:
-    """Pearson r between completion length and reward, with its standard error."""
+def correlation(rows: list[dict], metric, within_puzzle: bool) -> tuple[float, float]:
+    """Pearson r between the metric and reward, with its standard error. Undefined when either barely varies."""
     puzzles = defaultdict(list)
     for row in rows:
-        puzzles[row["prompt"] if within_puzzle else None].append((length(row), row["reward"]))
+        puzzles[row["prompt"] if within_puzzle else None].append((metric(row), row["reward"]))
     pairs = [(x - sum(a for a, _ in g) / len(g), y - sum(b for _, b in g) / len(g)) for g in puzzles.values() for x, y in g]
-    if sum(row["reward"] == 0 for row in rows) < MIN_SAMPLES or sum(row["reward"] for row in rows) < MIN_SAMPLES:
+    rare = lambda values: min(Counter(values).most_common()[-1][1], len(values) - Counter(values).most_common(1)[0][1]) < MIN_SAMPLES
+    spread_x, spread_y = sum(x * x for x, _ in pairs), sum(y * y for _, y in pairs)
+    if rare([row["reward"] for row in rows]) or (metric is newline and rare([metric(row) for row in rows])) or not spread_x * spread_y:
         return float("nan"), float("nan")
-    r = sum(x * y for x, y in pairs) / (sum(x * x for x, _ in pairs) * sum(y * y for _, y in pairs)) ** 0.5
+    r = sum(x * y for x, y in pairs) / (spread_x * spread_y) ** 0.5
     return r, ((1 - r * r) / (len(pairs) - 2)) ** 0.5
 
 
-def plot_correlation(run: str):
+CORRELATIONS = {"--correlation": (length, "completion length", "correlation"), "--newline-correlation": (newline, "using a newline", "newline-correlation")}
+
+
+def plot_correlation(run: str, metric, name: str, suffix: str):
     rows = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     panels = [("All samples", False), ("Within a puzzle", True)]
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), sharey=True, layout="constrained")
     levels = sorted(rows)
+    last = max(max(by_step) for by_step in rows.values())
     for offset, color, level in zip(range(len(levels)), plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), levels):
-        starts = range(0, max(rows[level]) + 1, BIN)
+        starts = range(0, last + 1, BIN)
         bins = [[r for step in range(start, start + BIN) for r in rows[level].get(step, [])] for start in starts]
         for ax, (title, within) in zip(axes, panels):
-            r, error = zip(*(correlation(b, within) for b in bins))
+            r, error = zip(*(correlation(b, metric, within) for b in bins))
             xs = [s + BIN / 2 + 1.5 * (offset - (len(levels) - 1) / 2) for s in starts]
             ax.errorbar(xs, r, yerr=error, fmt="o-", color=color, label=f"{level} swaps", capsize=2, elinewidth=1)
             ax.set_title(title)
     for ax in axes:
         ax.axhline(0, color="gray", linestyle=":", linewidth=1)
         ax.set_xlabel("Training step")
-        ax.set_xlim(-5, 205)
-    axes[0].set_ylabel("Correlation of length with correctness")
-    axes[0].legend(loc="lower left")
-    fig.suptitle(model)
+        ax.set_xlim(-5, last + 6)
+    axes[0].set_ylabel("Correlation with correctness")
+    axes[1].legend(loc="best")
+    fig.suptitle(f"{model}: {name} and correctness")
     Path("figures").mkdir(exist_ok=True)
-    fig.savefig(f"figures/{run}-correlation.png", dpi=150)
+    fig.savefig(f"figures/{run}-{suffix}.png", dpi=150)
 
 
 def plot_token_limit(run: str):
@@ -641,11 +648,14 @@ if __name__ == "__main__":
     if sys.argv[1] == "--formats":
         plot_formats(sys.argv[2])
         sys.exit()
+    if sys.argv[1] in CORRELATIONS:
+        plot_correlation(sys.argv[2], *CORRELATIONS[sys.argv[1]])
+        sys.exit()
     if sys.argv[1] in BY_OUTCOME:
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
     OTHER = {
-        "--length-signal": plot_length_signal, "--correlation": plot_correlation, "--token-limit": plot_token_limit,
+        "--length-signal": plot_length_signal, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
         "--okay": plot_okay, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }
