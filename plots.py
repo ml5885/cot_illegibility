@@ -890,6 +890,35 @@ def error_cause(row: dict, max_tokens: int) -> str:
     return ERRORS[3][0] if "wrong" in tracking(row) else ERRORS[4][0]
 
 
+def plot_list_errors(runs: list[str]):
+    """Share of wrong answers whose list of swaps is wrong (left out, added, repeated or out of order), one panel per run."""
+    width, minimum = 20, 10
+    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, sharey=True, layout="constrained")
+    for ax, run in zip(axes.flatten(), runs):
+        data = load(run)
+        args = json.loads(Path("runs", run, "args.json").read_text())
+        for color, level in zip(plt.cm.viridis([0.0, 0.3, 0.6, 0.85]), sorted(data["train"] | data["eval"])):
+            trained = level in data["train"]
+            bins = defaultdict(list)
+            for step, rows in data["train" if trained else "eval"][level].items():
+                bins[step // width * width + width / 2] += [r for r in rows if not r["reward"]]
+            xs = [start + width / 2 for start in range(0, int(max(bins)) + 1, width)]
+            shares = [sum(any(step_counts(r)) for r in bins[x]) / len(bins[x]) if len(bins.get(x, [])) >= minimum else float("nan") for x in xs]
+            if any(v == v for v in shares):
+                ax.plot(xs, shares, "o-", color=color, markersize=4, label=f"{level} swaps" + ("" if trained else ", held-out only"))
+        ax.set_title(f"{args['max_tokens']:,}-token limit" + (", trained on 2 and 4 swaps" if args["swaps"] == [2, 4] else ""))
+        ax.set_ylim(0, 1.03)
+        ax.yaxis.set_major_formatter("{x:.0%}")
+    for ax in axes[1]:
+        ax.set_xlabel("Training step")
+    fig.supylabel("Wrong answers with a wrong list of swaps")
+    axes[0, 0].legend(loc="lower right")
+    axes[1, 1].legend(loc="lower right")
+    fig.suptitle(json.loads(Path("runs", runs[0], "args.json").read_text())["model"].split("/")[-1])
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig("figures/list-errors.png", dpi=150)
+
+
 def plot_errors(run: str):
     data = load(run)
     args = json.loads(Path("runs", run, "args.json").read_text())
@@ -967,6 +996,9 @@ if __name__ == "__main__":
         sys.exit()
     if sys.argv[1] == "--lead":
         plot_lead(sys.argv[2:])
+        sys.exit()
+    if sys.argv[1] == "--list-errors":
+        plot_list_errors(sys.argv[2:])
         sys.exit()
     if sys.argv[1] == "--cutoffs":
         plot_cutoffs(sys.argv[2:])
