@@ -329,6 +329,22 @@ function cursor(x) {
 draw();
 plot.on("plotly_hover", event => cursor(event.xvals ? event.xvals[0] : event.points[0].x));
 plot.on("plotly_unhover", () => cursor(null));
+
+// Axes that play the same role in each panel: x1-4, the first right axis y1-4, the second y11-14, the token axis y61-64.
+const GROUPS = { x: n => [1, 2, 3, 4], y: n => [1, 2, 3, 4].map(i => (n <= 4 ? 0 : n <= 14 ? 10 : 60) + i) };
+let syncing = false;
+plot.on("plotly_relayout", event => {
+  if (syncing) return;
+  const update = {};
+  for (const [key, value] of Object.entries(event)) {
+    const m = key.match(/^([xy])axis(\\d*)\\.(range(?:\\[[01]\\])?|autorange)$/);
+    if (!m) continue;
+    for (const n of GROUPS[m[1]](Number(m[2] || 1))) update[`${m[1]}axis${n === 1 ? "" : n}.${m[3]}`] = value;
+  }
+  if (!Object.keys(update).length) return;
+  syncing = true;
+  Plotly.relayout(plot, update).then(() => { syncing = false; });
+});
 </script>
 </body>
 </html>
