@@ -48,11 +48,11 @@ MEASURES = {
 ADVANTAGE_WIDTH = 10
 
 
-def advantage_split(by_step: dict[int, list[dict]], has) -> dict[str, list[float | None]]:
+def advantage_split(by_step: dict[int, list[dict]], has, yes: str, no: str) -> dict:
     """Per 10-step bin, mean advantage (and standard error) of responses with and without a feature, in groups with mixed rewards."""
     starts = range(0, max(by_step) + 1, ADVANTAGE_WIDTH)
     scored = {s: group_advantages(rows) for s, rows in by_step.items()}
-    out = {"x": [start + ADVANTAGE_WIDTH / 2 for start in starts]}
+    out = {"x": [start + ADVANTAGE_WIDTH / 2 for start in starts], "yes": yes, "no": no}
     for side, key in [(True, "with"), (False, "without")]:
         means, errors = [], []
         for start in starts:
@@ -91,9 +91,14 @@ def summarize(run: str) -> dict:
                 points[s] = (sum(p[0] for p in pairs), sum(p[1] for p in pairs))
             measures[name] = smoothed(points)
         splits = {
-            "Longer than its group's mean": lambda row, group: row["tokens"] > sum(r["tokens"] for r in group) / len(group),
-            "Cut off at the token limit": lambda row, group: row["tokens"] >= limit - 2,
-        } | {f"With {name}": (lambda f: lambda row, group: f(row))(f) for name, f in FEATURES.items()}
+            "Length": (
+                lambda row, group: row["tokens"] > sum(r["tokens"] for r in group) / len(group), "Longer than its group's mean", "Shorter than its group's mean",
+            ),
+            "Cut off at the token limit": (lambda row, group: row["tokens"] >= limit - 2, "Cut off", "Not cut off"),
+        } | {
+            name[0].upper() + name[1:]: ((lambda f: lambda row, group: f(row))(f), f"With {name}", f"Without {name}")
+            for name, f in FEATURES.items()
+        }
         levels[level] = {
             "steps": steps,
             "centers": [start + half / 2 for start in starts],
@@ -103,7 +108,7 @@ def summarize(run: str) -> dict:
             "longest": [b[-1] for b in bins],
             "cut": [sum(t >= limit - 2 for t in b) / len(b) for b in bins],
             "measures": measures,
-            "advantage": {name: advantage_split(by_step, has) for name, has in splits.items()},
+            "advantage": {name: advantage_split(by_step, *split) for name, split in splits.items()},
         }
     return {"limit": limit, "levels": levels}
 
@@ -125,6 +130,10 @@ PAGE = """<!doctype html>
   .toggle button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
   .toggle button.on { background: var(--accent); border-color: var(--accent); color: white; }
   .note { color: var(--muted); font-size: 14px; margin: 4px 0 0; max-width: 900px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; }
+  .chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .chip button { font: inherit; border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 4px; font-size: 16px; line-height: 1; }
   select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); max-width: 100%; }
   label { color: var(--muted); margin-right: 6px; }
   #plot { width: 100%; height: min(860px, 120vw); }
@@ -134,94 +143,131 @@ PAGE = """<!doctype html>
 <h1>Completion length and the token limit</h1>
 <div class="controls">
   <div class="toggle" id="runs"></div>
-  <div class="toggle" id="modes"></div>
-  <div><label for="measure">Right axis</label><select id="measure"></select></div>
+  <div><label for="add">Right axis</label><select id="add"></select></div>
 </div>
-<p class="note" id="note"></p>
+<div class="chips" id="chips"></div>
+<p class="note">Shares are of training completions (5-step mean). Advantage lines show the mean GRPO advantage of completions with (solid) and without (dashed) a feature, among groups with mixed rewards, in 10-step bins with standard errors; bins with fewer than 5 completions on a side are left out.</p>
 <div id="plot"></div>
 <script>
 const DATA = __DATA__;
 const runNames = Object.keys(DATA);
 const sample = Object.values(Object.values(DATA)[0].levels)[0];
-const MODES = {
-  "Share of completions": Object.keys(sample.measures).concat(["Cut off at the token limit"]),
-  "Mean advantage": Object.keys(sample.advantage),
+const KINDS = {
+  share: { label: "Share of completions", names: Object.keys(sample.measures).concat(["Cut off at the token limit"]) },
+  advantage: { label: "Mean advantage", names: Object.keys(sample.advantage) },
 };
-const NOTES = {
-  "Share of completions": "Right axis: share of training completions (5-step mean).",
-  "Mean advantage": "Right axis: mean GRPO advantage of completions with and without the feature, among groups with mixed rewards, in 10-step bins (error bars: standard error). Bins with fewer than 5 completions on a side are left out.",
-};
-let run = Object.keys(DATA)[0], mode = "Share of completions", measure = MODES[mode][0];
+const COLORS = ["#eb6834", "#1baf7a", "#e87ba4", "#eda100", "#008300", "#8a5cd6"];
+const MAX_LINES = COLORS.length;
+let run = runNames[0];
+let lines = [{ kind: "share", name: "Completions with a newline", color: COLORS[0] }];
 
-function toggle(id, names, label, pick) {
-  const box = document.getElementById(id);
-  for (const name of names) {
-    const b = document.createElement("button");
-    b.textContent = label(name);
-    b.onclick = () => pick(name);
-    box.appendChild(b);
+const runs = document.getElementById("runs");
+for (const name of runNames) {
+  const b = document.createElement("button");
+  b.textContent = `${DATA[name].limit.toLocaleString()}-token limit`;
+  b.onclick = () => { run = name; draw(); };
+  runs.appendChild(b);
+}
+
+const add = document.getElementById("add");
+function fillPicker() {
+  add.innerHTML = "";
+  add.add(new Option(lines.length < MAX_LINES ? "Add a line…" : `At most ${MAX_LINES} lines`, ""));
+  for (const [kind, { label, names }] of Object.entries(KINDS)) {
+    const group = document.createElement("optgroup");
+    group.label = label;
+    for (const name of names) {
+      const option = new Option(name, `${kind}|${name}`);
+      option.disabled = lines.length >= MAX_LINES || lines.some(l => l.kind === kind && l.name === name);
+      group.appendChild(option);
+    }
+    add.appendChild(group);
   }
-  return box;
 }
-const runs = toggle("runs", runNames, name => `${DATA[name].limit.toLocaleString()}-token limit`, name => { run = name; draw(); });
-const modes = toggle("modes", Object.keys(MODES), name => name, name => { mode = name; measure = MODES[mode][0]; fill(); draw(); });
-const select = document.getElementById("measure");
-function fill() {
-  select.innerHTML = "";
-  for (const name of MODES[mode]) select.add(new Option(name, name));
-  select.value = measure;
+add.onchange = () => {
+  const [kind, name] = add.value.split("|");
+  const color = COLORS.find(c => !lines.some(l => l.color === c));
+  if (name && color) lines.push({ kind, name, color });
+  draw();
+};
+
+function label(line) { return line.kind === "advantage" ? `Advantage: ${line.name}` : line.name; }
+
+function renderChips() {
+  const box = document.getElementById("chips");
+  box.innerHTML = "";
+  for (const line of lines) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.innerHTML = `<i style="background:${line.color}"></i>`;
+    chip.append(label(line));
+    const remove = document.createElement("button");
+    remove.textContent = "×";
+    remove.title = "Remove";
+    remove.onclick = () => { lines = lines.filter(l => l !== line); draw(); };
+    chip.appendChild(remove);
+    box.appendChild(chip);
+  }
 }
-select.onchange = () => { measure = select.value; draw(); };
-fill();
 
 const FONT = { family: '"DejaVu Serif", Georgia, serif', color: "#1f1f1f", size: 13 };
-const ORANGE = "#eb6834", BLUE = "#2a78d6", GREEN = "#1baf7a";
+const BLUE = "#2a78d6", GAP = 0.055;
 
 function draw() {
   [...runs.children].forEach((b, i) => b.classList.toggle("on", runNames[i] === run));
-  [...modes.children].forEach((b, i) => b.classList.toggle("on", Object.keys(MODES)[i] === mode));
-  document.getElementById("note").textContent = NOTES[mode];
-  const advantage = mode === "Mean advantage";
+  fillPicker();
+  renderChips();
   const { limit, levels } = DATA[run];
+  const extra = Math.max(lines.length - 1, 0);
+  const domains = [[0, 0.46], [0.54, 1 - GAP * extra]], rows = [[0.56, 1], [0, 0.44]];
   const traces = [], layout = {
     font: FONT, paper_bgcolor: "#ffffff", plot_bgcolor: "#ffffff", hovermode: "x unified", showlegend: true,
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.13, bordercolor: "#000", borderwidth: 1 },
-    margin: { l: 70, r: 70, t: 40, b: 110 }, annotations: [],
+    margin: { l: 70, r: 40, t: 40, b: 120 }, annotations: [],
   };
-  const domains = [[0, 0.46], [0.54, 1]], rows = [[0.56, 1], [0, 0.44]];
   Object.entries(levels).forEach(([level, d], i) => {
-    const n = i + 1, share = `y${n}`, tokens = `y${n + 4}`, x = `x${n}`;
+    const n = i + 1, x = `x${n}`, tokens = `y${60 + n}`, first = i === 0, shown = i % 2 === 1;
     const col = domains[i % 2], row = rows[Math.floor(i / 2)];
-    layout[`xaxis${n}`] = { domain: col, anchor: share, range: [0, 200], title: i >= 2 ? "Training step" : "", showgrid: false, zeroline: false };
-    layout[`yaxis${n}`] = { domain: row, anchor: x, side: "right", showgrid: false, tickfont: { color: ORANGE }, showticklabels: i % 2 === 1,
-      ...(advantage
-        ? { range: [-1.5, 1.5], tickformat: ".1f", zeroline: true, zerolinecolor: "#9a9a9a", title: i % 2 ? { text: "Mean advantage", font: { color: ORANGE, size: 12 } } : "" }
-        : { range: [0, 1.06], tickformat: ".0%", zeroline: false, title: i % 2 ? { text: measure, font: { color: ORANGE, size: 12 } } : "" }) };
-    layout[`yaxis${n + 4}`] = { overlaying: share, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
+    layout[`xaxis${n}`] = { domain: col, anchor: `y${n}`, range: [0, 200], title: i >= 2 ? "Training step" : "", showgrid: false, zeroline: false };
+    layout[`yaxis${n}`] = { domain: row, anchor: x, side: "right", showgrid: false, zeroline: false, showticklabels: false, ticks: "", range: [0, 1] };
+    lines.forEach((line, j) => {
+      const id = j === 0 ? n : 10 + (n - 1) * MAX_LINES + j, axis = `y${id}`;
+      const scale = line.kind === "advantage"
+        ? { range: [-1.5, 1.5], tickformat: ".1f", zeroline: true, zerolinecolor: line.color, zerolinewidth: 1 }
+        : { range: [0, 1.06], tickformat: ".0%", zeroline: false };
+      layout[`yaxis${id}`] = {
+        ...(j === 0 ? { domain: row, anchor: x } : { overlaying: `y${n}`, anchor: "free", position: Math.min(col[1] + GAP * j, 1) }),
+        side: "right", showgrid: false, showline: shown, linecolor: line.color, showticklabels: shown, ticks: shown ? "outside" : "",
+        tickfont: { color: line.color, size: 11 }, title: shown ? { text: line.kind === "advantage" ? "Mean advantage" : "Share", font: { color: line.color, size: 11 }, standoff: 2 } : "",
+        ...scale,
+      };
+      if (line.kind === "advantage") {
+        const a = d.advantage[line.name];
+        for (const [key, dash, side] of [["with", "solid", "yes"], ["without", "dash", "no"]]) {
+          traces.push({ x: a.x, y: a[key], error_y: { type: "data", array: a[`${key}_error`], color: line.color, thickness: 1, width: 2 },
+            mode: "lines+markers", line: { color: line.color, width: 2, dash }, marker: { size: 5 }, xaxis: x, yaxis: axis,
+            name: a[side], legendgroup: `${line.name}${key}`, showlegend: first, hovertemplate: "%{y:.2f}" });
+        }
+      } else if (line.name === "Cut off at the token limit") {
+        traces.push({ type: "bar", x: d.centers, y: d.cut, marker: { color: line.color, opacity: 0.8 }, width: 8, xaxis: x, yaxis: axis,
+          name: line.name, legendgroup: line.name, showlegend: first, hovertemplate: "%{y:.0%}" });
+      } else {
+        traces.push({ x: d.steps, y: d.measures[line.name], mode: "lines", line: { color: line.color, width: 2 }, xaxis: x, yaxis: axis,
+          name: line.name, legendgroup: line.name, showlegend: first, hovertemplate: "%{y:.0%}" });
+      }
+    });
+    layout[`yaxis${60 + n}`] = { overlaying: `y${n}`, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
       title: i % 2 ? "" : "Completion tokens" };
     layout.annotations.push({ text: `${level} swaps`, x: (col[0] + col[1]) / 2, y: row[1] + 0.02, xref: "paper", yref: "paper", showarrow: false, font: { size: 15 } });
-    const first = i === 0;
-    if (advantage) {
-      const a = d.advantage[measure];
-      for (const [key, color, name] of [["with", ORANGE, measure], ["without", GREEN, "Without"]]) {
-        traces.push({ x: a.x, y: a[key], error_y: { type: "data", array: a[`${key}_error`], color, thickness: 1, width: 2 }, mode: "lines+markers",
-          line: { color, width: 2 }, marker: { size: 5 }, xaxis: x, yaxis: share, name, legendgroup: key, showlegend: first, hovertemplate: "%{y:.2f}" });
-      }
-    } else {
-      const right = measure === "Cut off at the token limit"
-        ? { type: "bar", x: d.centers, y: d.cut, marker: { color: "#eda100" }, width: 8 }
-        : { type: "scatter", mode: "lines", x: d.steps, y: d.measures[measure], line: { color: ORANGE, width: 2 } };
-      traces.push({ ...right, xaxis: x, yaxis: share, name: measure, legendgroup: "m", showlegend: first, hovertemplate: "%{y:.0%}" });
-    }
-    traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "b" });
+    traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "band" });
     traces.push({ x: d.centers, y: d.high, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, fill: "tonexty",
-      fillcolor: "rgba(42,120,214,0.25)", name: "5th to 95th percentile", legendgroup: "b", showlegend: first, hoverinfo: "skip" });
+      fillcolor: "rgba(42,120,214,0.25)", name: "5th to 95th percentile", legendgroup: "band", showlegend: first, hoverinfo: "skip" });
     traces.push({ x: d.centers, y: d.median, xaxis: x, yaxis: tokens, mode: "lines", line: { color: BLUE, width: 2 }, name: "Median",
-      legendgroup: "med", showlegend: first, hovertemplate: "%{y:.0f} tokens" });
+      legendgroup: "median", showlegend: first, hovertemplate: "%{y:.0f} tokens" });
     traces.push({ x: d.centers, y: d.longest, xaxis: x, yaxis: tokens, mode: "markers", marker: { color: "#595959", size: 6 }, name: "Longest",
-      legendgroup: "max", showlegend: first, hovertemplate: "%{y:.0f} tokens" });
+      legendgroup: "longest", showlegend: first, hovertemplate: "%{y:.0f} tokens" });
     traces.push({ x: [0, 200], y: [limit, limit], xaxis: x, yaxis: tokens, mode: "lines", line: { color: "#000", dash: "dash", width: 1 },
-      name: "Token limit", legendgroup: "lim", showlegend: first, hoverinfo: "skip" });
+      name: "Token limit", legendgroup: "limit", showlegend: first, hoverinfo: "skip" });
   });
   Plotly.react("plot", traces, layout, { responsive: true, displaylogo: false });
 }
