@@ -732,7 +732,7 @@ def plot_length_push(runs: list[str]):
         bottom.set_ylim(-400, 1000)
         for center, total in zip(centers, below):
             if total > 1000:
-                bottom.text(center, 985, f"{total / 1000:.1f}k", ha="center", va="top", fontsize=7, color="white")
+                bottom.text(center, 975, f"{total / 1000:.1f}k", ha="center", va="top", rotation=90, fontsize=9, color="white")
     for ax in axes[:, 1:].flat:
         ax.tick_params(labelleft=False)
     axes[0, 0].set_ylabel("Completions with a newline")
