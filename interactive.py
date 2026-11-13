@@ -163,7 +163,12 @@ let run = runNames[0], showLength = true;
 document.getElementById("length").onchange = event => { showLength = event.target.checked; draw(); };
 let lines = [{ kind: "share", name: "Completions with a newline", color: COLORS[0] }];
 
-const BOTH = "both", STYLES = [{ dash: "solid", symbol: "circle" }, { dash: "dash", symbol: "circle-open" }];
+// The second run is drawn faded, with hollow markers every 10 steps, so the two runs can be told apart when overlaid.
+const BOTH = "both", STYLES = [{ opacity: 1, symbol: "circle", markers: false }, { opacity: 0.45, symbol: "circle-open", markers: true }];
+const every = (xs, ys, width = 10) => {
+  const keep = xs.map((x, i) => i).filter(i => xs[i] % width === width / 2 && ys[i] !== null);
+  return { x: keep.map(i => xs[i]), y: keep.map(i => ys[i]) };
+};
 const runLabel = name => `${DATA[name].limit.toLocaleString()}-token limit`;
 const runOptions = runNames.concat([BOTH]);
 const runs = document.getElementById("runs");
@@ -308,21 +313,23 @@ function draw() {
     });
     const series = active.map(name => ({ run: name, d: DATA[name].levels[level] }));
     series.forEach(({ run: name, d }, k) => {
-      const { dash, symbol } = STYLES[runNames.indexOf(name)], legend = first && k === 0;
+      const { opacity, symbol, markers } = STYLES[runNames.indexOf(name)], legend = first && k === 0;
       lines.forEach(line => {
         const j = kinds.indexOf(line.kind), axis = `y${j === 0 ? n : 10 + n}`;
         if (line.kind === "advantage") {
           const g = gap(d.advantage[line.name]);
           traces.push({ x: g.x, y: g.y, error_y: { type: "data", array: g.error, color: line.color, thickness: 1, width: 2 },
-            mode: "lines+markers", line: { color: line.color, width: 2, dash }, marker: { size: 5, symbol }, xaxis: x, yaxis: axis,
+            mode: "lines+markers", opacity, line: { color: line.color, width: 2 }, marker: { size: 6, symbol }, xaxis: x, yaxis: axis,
             name: `Advantage gap, ${gapLabel(line.name)}`, legendgroup: line.name, showlegend: legend, hoverinfo: "none" });
         } else if (line.name === "Cut off at the token limit") {
           traces.push({ type: "bar", x: d.centers, y: d.cut, width: 8, xaxis: x, yaxis: axis, offsetgroup: name,
             marker: { color: line.color, opacity: overlay ? 0.6 : 0.8, pattern: { shape: k ? "/" : "" } },
             name: line.name, legendgroup: line.name, showlegend: legend, hoverinfo: "none" });
         } else {
-          traces.push({ x: d.steps, y: d.measures[line.name], mode: "lines", line: { color: line.color, width: 2, dash }, xaxis: x, yaxis: axis,
+          traces.push({ x: d.steps, y: d.measures[line.name], mode: "lines", opacity, line: { color: line.color, width: 2 }, xaxis: x, yaxis: axis,
             name: line.name, legendgroup: line.name, showlegend: legend, hoverinfo: "none" });
+          if (markers) traces.push({ ...every(d.steps, d.measures[line.name]), mode: "markers", marker: { color: line.color, size: 7, symbol, line: { width: 1.5 } },
+            xaxis: x, yaxis: axis, showlegend: false, legendgroup: line.name, hoverinfo: "none" });
         }
       });
     });
@@ -332,11 +339,12 @@ function draw() {
     layout[`yaxis${60 + n}`] = { overlaying: `y${n}`, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
       title: i % 2 ? "" : "Completion tokens" };
     series.forEach(({ run: name, d }, k) => {
-      const { dash, symbol } = STYLES[runNames.indexOf(name)], legend = first && k === 0, cap = DATA[name].limit;
+      const { opacity, symbol, markers } = STYLES[runNames.indexOf(name)], legend = first && k === 0, cap = DATA[name].limit;
       traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "band" });
       traces.push({ x: d.centers, y: d.high, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, fill: "tonexty",
         fillcolor: `rgba(42,120,214,${overlay ? 0.14 : 0.25})`, name: "5th to 95th percentile", legendgroup: "band", showlegend: legend, hoverinfo: "skip" });
-      traces.push({ x: d.centers, y: d.median, xaxis: x, yaxis: tokens, mode: "lines", line: { color: BLUE, width: 2, dash }, name: "Median",
+      traces.push({ x: d.centers, y: d.median, xaxis: x, yaxis: tokens, mode: markers ? "lines+markers" : "lines", opacity,
+        line: { color: BLUE, width: 2 }, marker: { size: 7, symbol, line: { width: 1.5 } }, name: "Median",
         legendgroup: "median", showlegend: legend, hoverinfo: "none" });
       traces.push({ x: d.centers, y: d.longest, xaxis: x, yaxis: tokens, mode: "markers", marker: { color: "#595959", size: 6, symbol }, name: "Longest",
         legendgroup: "longest", showlegend: legend, hoverinfo: "none" });
@@ -347,7 +355,7 @@ function draw() {
     });
   });
   if (overlay) runNames.forEach((name, k) => traces.push({ x: [null], y: [null], xaxis: "x1", yaxis: "y1", mode: "lines+markers",
-    line: { color: "#444", width: 2, dash: STYLES[k].dash }, marker: { color: "#444", size: 6, symbol: STYLES[k].symbol }, name: runLabel(name),
+    opacity: STYLES[k].opacity, line: { color: "#444", width: 2 }, marker: { color: "#444", size: 7, symbol: STYLES[k].symbol, line: { width: 1.5 } }, name: runLabel(name),
     legendgroup: `run${k}`, hoverinfo: "skip" }));
   titles = layout.annotations;
   Plotly.react("plot", traces, layout, { responsive: true, displaylogo: false });
