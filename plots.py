@@ -6,7 +6,7 @@ uv run --with matplotlib plots.py --lengths RUN                   completion len
 uv run --with matplotlib plots.py --newlines RUN                  share of completions with a newline, by outcome
 uv run --with matplotlib plots.py --length-signal RUN             what the reward says about length
 uv run --with matplotlib plots.py --correlation RUN               correlation of length with correctness
-uv run --with matplotlib plots.py --push RUN                      which way the reward pushes newlines and length, step by step
+uv run --with matplotlib plots.py --push RUN                      advantage-weighted difference in newlines and length within puzzles
 uv run --with matplotlib plots.py --newline-correlation RUN       correlation of using a newline with correctness
 uv run --with matplotlib plots.py --token-limit RUN               completion tokens against the token limit
 uv run --with matplotlib --with transformers plots.py --traces RUN   what correct held-out traces spend their tokens on
@@ -519,9 +519,10 @@ def plot_templates(run: str):
     fig.savefig(f"figures/{run}-templates.png", dpi=130)
 
 
-def reward_push(rows: list[dict], feature) -> float:
+def advantage_weighted_difference(rows: list[dict], feature) -> float:
     """Mean over a step's samples of advantage times the feature's deviation from its group mean, with the
-    advantage standardized within each puzzle's group as GRPO does. Positive: the update favours the feature."""
+    advantage standardized within each puzzle's group as GRPO does. Positive: within a puzzle, the responses
+    with higher advantage have more of the feature. It is not the gradient."""
     groups = defaultdict(list)
     for row in rows:
         groups[row["prompt"]].append(row)
@@ -552,10 +553,10 @@ def plot_push(run: str):
         top.set_title(title, fontsize=12)
         top.yaxis.set_major_formatter(tick_format)
         starts = range(0, steps[-1] + 1, width)
-        push = [sum(reward_push(pooled[s], feature) for s in range(a, a + width) if s in pooled) / width for a in starts]
+        push = [sum(advantage_weighted_difference(pooled[s], feature) for s in range(a, a + width) if s in pooled) / width for a in starts]
         bottom.bar([a + width / 2 for a in starts], push, width - 2, color=[PALETTE[0] if v >= 0 else PALETTE[1] for v in push])
         bottom.axhline(0, color="black", linewidth=0.8)
-        bottom.set_title("Reward's push on it (above zero: favoured)", fontsize=12)
+        bottom.set_title("Advantage-weighted difference within puzzles", fontsize=12)
         bottom.set_xlabel("Training step")
     axes[0, 0].set_ylim(0, 1.03)
     fig.suptitle(model)
