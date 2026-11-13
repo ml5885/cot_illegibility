@@ -130,6 +130,7 @@ PAGE = """<!doctype html>
   .toggle button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
   .toggle button.on { background: var(--accent); border-color: var(--accent); color: white; }
   .note { color: var(--muted); font-size: 14px; margin: 4px 0 0; max-width: 900px; }
+  .check { color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 14px; }
   .chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -144,6 +145,7 @@ PAGE = """<!doctype html>
 <div class="controls">
   <div class="toggle" id="runs"></div>
   <div><label for="add">Right axis</label><select id="add"></select></div>
+  <label class="check"><input type="checkbox" id="length" checked> Completion length</label>
 </div>
 <div class="chips" id="chips"></div>
 <div id="plot"></div>
@@ -157,7 +159,8 @@ const KINDS = {
 };
 const COLORS = ["#eb6834", "#1baf7a", "#e87ba4", "#eda100", "#008300", "#8a5cd6"];
 const MAX_LINES = COLORS.length;
-let run = runNames[0];
+let run = runNames[0], showLength = true;
+document.getElementById("length").onchange = event => { showLength = event.target.checked; draw(); };
 let lines = [{ kind: "share", name: "Completions with a newline", color: COLORS[0] }];
 
 const runs = document.getElementById("runs");
@@ -224,10 +227,11 @@ const percent = v => v === null ? "–" : `${Math.round(v * 100)}%`;
 const signed = v => v === null ? "–" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`;
 
 function tooltip(p, step) {
-  const d = p.d, rows = [`<b>Step ${step}</b>`,
+  const d = p.d, rows = [`<b>Step ${step}</b>`];
+  if (showLength) rows.push(
     `Median: ${at(d.centers, d.median, step) ?? "–"} tokens`,
     `5th to 95th percentile: ${at(d.centers, d.low, step) ?? "–"} to ${at(d.centers, d.high, step) ?? "–"}`,
-    `Longest: ${at(d.centers, d.longest, step) ?? "–"}`];
+    `Longest: ${at(d.centers, d.longest, step) ?? "–"}`);
   for (const line of lines) {
     const dot = `<span style="color:${line.color}">●</span>`;
     if (line.kind === "advantage") {
@@ -266,13 +270,13 @@ function draw() {
     layout[`yaxis${n}`] = { domain: row, anchor: x, side: "right", showgrid: false, zeroline: false, showticklabels: false, ticks: "", range: [0, 1] };
     kinds.forEach((kind, j) => {
       const id = j === 0 ? n : 10 + n, members = lines.filter(line => line.kind === kind);
-      const color = members.length === 1 ? members[0].color : "#555555";
+      const color = members.length === 1 ? members[0].color : "#555555", shown = i % 2 === 1 || (j === 0 && !showLength);
       const scale = kind === "advantage"
         ? { range: [-1.5, 1.5], tickformat: ".1f", zeroline: true, zerolinecolor: "#9a9a9a", zerolinewidth: 1 }
         : { range: [0, 1.06], tickformat: ".0%", zeroline: false };
       layout[`yaxis${id}`] = {
         ...(j === 0 ? { domain: row, anchor: x } : { overlaying: `y${n}`, anchor: "free", position: Math.min(col[1] + GAP * j, 1) }),
-        side: "right", showgrid: false, showline: shown, linecolor: color, showticklabels: shown, ticks: shown ? "outside" : "",
+        side: "right", showgrid: j === 0 && !showLength, gridcolor: "#ececec", showline: shown, linecolor: color, showticklabels: shown, ticks: shown ? "outside" : "",
         tickfont: { color, size: 11 }, title: shown ? { text: kind === "advantage" ? "Mean advantage" : "Share", font: { color, size: 11 }, standoff: 2 } : "",
         ...scale,
       };
@@ -294,10 +298,11 @@ function draw() {
           name: line.name, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
       }
     });
-    layout[`yaxis${60 + n}`] = { overlaying: `y${n}`, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
-      title: i % 2 ? "" : "Completion tokens" };
     panels.push({ x, row, col, d, level });
     layout.annotations.push({ text: `${level} swaps`, x: (col[0] + col[1]) / 2, y: row[1] + 0.02, xref: "paper", yref: "paper", showarrow: false, font: { size: 15 } });
+    if (!showLength) return;
+    layout[`yaxis${60 + n}`] = { overlaying: `y${n}`, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
+      title: i % 2 ? "" : "Completion tokens" };
     traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "band" });
     traces.push({ x: d.centers, y: d.high, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, fill: "tonexty",
       fillcolor: "rgba(42,120,214,0.25)", name: "5th to 95th percentile", legendgroup: "band", showlegend: first, hoverinfo: "skip" });
