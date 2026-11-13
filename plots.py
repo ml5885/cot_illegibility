@@ -563,21 +563,19 @@ def plot_advantages(run: str):
     fig.savefig(f"figures/{run}-advantages.png", dpi=150)
 
 
-def advantage_weighted_difference(rows: list[dict], feature) -> float:
-    """Mean over a step's samples of advantage times the feature's deviation from its group mean, with the
-    advantage standardized within each puzzle's group as GRPO does. Positive: within a puzzle, the responses
-    with higher advantage have more of the feature. It is not the gradient."""
+def group_advantages(rows: list[dict]) -> list[tuple[dict, float, list[dict]]]:
+    """(response, its GRPO advantage, its puzzle group) for every response in a group with mixed rewards."""
     groups = defaultdict(list)
     for row in rows:
         groups[row["prompt"]].append(row)
-    total = 0.0
+    out = []
     for group in groups.values():
-        rewards, values = [r["reward"] for r in group], [feature(r) for r in group]
-        mean_reward, mean_value = sum(rewards) / len(group), sum(values) / len(group)
-        spread = (sum((x - mean_reward) ** 2 for x in rewards) / len(group)) ** 0.5
+        rewards = [r["reward"] for r in group]
+        mean = sum(rewards) / len(group)
+        spread = (sum((x - mean) ** 2 for x in rewards) / (len(group) - 1)) ** 0.5
         if spread:
-            total += sum((x - mean_reward) / (spread + 1e-4) * (v - mean_value) for x, v in zip(rewards, values))
-    return total / len(rows)
+            out += [(row, (row["reward"] - mean) / (spread + 1e-4), group) for row in group]
+    return out
 
 
 def plot_push(run: str):
@@ -585,23 +583,31 @@ def plot_push(run: str):
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
     width = 10
     typical = {level: sum(r["tokens"] for rows in by_step.values() for r in rows) / sum(map(len, by_step.values())) for level, by_step in data.items()}
+    longer = lambda row, group: row["tokens"] > sum(r["tokens"] for r in group) / len(group)
     features = [
-        (newline, "Completions with a newline", "{x:.0%}", "newline responses"),
-        (lambda row: row["tokens"] / typical[row["level"]], "Relative completion length", "{x:.2f}", "longer responses"),
+        (newline, "Completions with a newline", "{x:.0%}", lambda row, group: bool(newline(row)), "With a newline", "Without"),
+        (lambda row: row["tokens"] / typical[row["level"]], "Relative completion length", "{x:.2f}", longer, "Longer than its group's mean", "Shorter"),
     ]
     steps = sorted({step for by_step in data.values() for step in by_step})
     pooled = {step: [row for by_step in data.values() for row in by_step.get(step, [])] for step in steps}
-    fig, axes = plt.subplots(2, 2, figsize=(12, 7), sharex=True, layout="constrained")
-    for (top, bottom), (feature, title, tick_format, name) in zip(axes.T, features):
+    scored = {step: group_advantages(rows) for step, rows in pooled.items()}
+    fig, axes = plt.subplots(2, 2, figsize=(12, 7.4), sharex=True, layout="constrained")
+    starts = range(0, steps[-1] + 1, width)
+    for (top, bottom), (feature, title, tick_format, has, yes, no) in zip(axes.T, features):
         top.plot(*smoothed(pooled, feature), color="0.2", linewidth=2)
-        top.set_title(title, fontsize=12)
+        top.set_title(title)
         top.yaxis.set_major_formatter(tick_format)
-        starts = range(0, steps[-1] + 1, width)
-        push = [sum(advantage_weighted_difference(pooled[s], feature) for s in range(a, a + width) if s in pooled) / width for a in starts]
-        bottom.bar([a + width / 2 for a in starts], push, width - 2, color=[PALETTE[0] if v >= 0 else PALETTE[1] for v in push])
-        bottom.axhline(0, color="black", linewidth=0.8)
-        bottom.set_title(f"Advantage of {name}", fontsize=12)
+        for side, label, color in [(True, yes, PALETTE[1]), (False, no, PALETTE[0])]:
+            bins = [[a for s in range(start, start + width) for row, a, group in scored.get(s, []) if has(row, group) == side] for start in starts]
+            kept = [(start + width / 2, b) for start, b in zip(starts, bins) if len(b) >= MIN_SAMPLES]
+            means = [sum(b) / len(b) for _, b in kept]
+            errors = [(sum((a - m) ** 2 for a in b) / (len(b) - 1) / len(b)) ** 0.5 for (_, b), m in zip(kept, means)]
+            bottom.errorbar([x for x, _ in kept], means, yerr=errors, fmt="o-", color=color, label=label, capsize=2, markersize=4)
+        bottom.axhline(0, color="gray", linestyle=":", linewidth=1)
+        bottom.set_title("Mean advantage")
         bottom.set_xlabel("Training step")
+        bottom.set_ylim(-1, 1)
+        bottom.legend(loc="lower right")
     axes[0, 0].set_ylim(0, 1.03)
     fig.suptitle(model)
     Path("figures").mkdir(exist_ok=True)
