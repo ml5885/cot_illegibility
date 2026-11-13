@@ -297,6 +297,20 @@ def plot_dropped(run: str):
     fig.savefig(f"figures/{run}-dropped.png", dpi=150)
 
 
+def sound(row: dict) -> bool:
+    """The list of swaps is right and no stated key location is wrong."""
+    outcomes = tracking(row)
+    return step_counts(row) == (0, 0) and "wrong" not in outcomes and "skipped" not in outcomes
+
+
+def plot_mismatch(run: str):
+    panels = [
+        ("Right reasoning, wrong answer", lambda rs: sum(sound(r) and not r["reward"] for r in rs) / len(rs)),
+        ("Wrong reasoning, right answer", lambda rs: sum(r["reward"] and not sound(r) for r in rs) / len(rs)),
+    ]
+    plot_by_level(run, panels, (1, 2), (11, 4.6), "mismatch")
+
+
 def plot_error_analysis(run: str):
     plot_by_level(run, error_panels(), (1, 3), (15, 4.6), "error-analysis")
 
@@ -1065,7 +1079,7 @@ if __name__ == "__main__":
         plot_by_outcome(sys.argv[2], *BY_OUTCOME[sys.argv[1]])
         sys.exit()
     OTHER = {
-        "--length-signal": plot_length_signal, "--failure": plot_failure, "--error-analysis": plot_error_analysis, "--dropped": plot_dropped, "--token-limit": plot_token_limit,
+        "--length-signal": plot_length_signal, "--failure": plot_failure, "--error-analysis": plot_error_analysis, "--dropped": plot_dropped, "--mismatch": plot_mismatch, "--token-limit": plot_token_limit,
         "--traces": plot_traces, "--tracking": plot_tracking, "--coverage": plot_coverage,
         "--okay": plot_okay, "--push": plot_push, "--formatting": plot_formatting, "--advantages": plot_advantages, "--templates": plot_templates, "--train-eval": plot_train_eval, "--errors": plot_errors,
     }

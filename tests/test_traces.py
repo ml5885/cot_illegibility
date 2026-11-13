@@ -144,3 +144,48 @@ def test_the_summing_up_after_the_last_swap_is_not_a_standalone_statement(ending
 def test_a_standalone_statement_in_the_last_step_still_counts():
     completion = " 1. Swap A and B: The key moves to B. Now the key is in box B. After all the swaps, the key is in box B.</think>"
     assert swap_steps(row("A", ["AB"], completion)) == [("right", True)]
+
+
+def test_no_longer_in_is_not_a_statement_of_where_the_key_is():
+    completion = (
+        " 1. Swap the contents of boxes C and D: The key is currently in box C, so it moves from box C to box D."
+        " The key is no longer in box C. 2. Swap the contents of boxes A and B: The key is not in A or B, so it stays in"
+        " box D.</think> <answer> D </answer>"
+    )
+    assert outcomes("C", ["CD", "AB"], completion) == ["right", "right"]
+
+
+def test_a_step_whose_number_comes_before_another_sentence_still_counts():
+    completion = (
+        " 1. The key is initially in box A. Swapping boxes C and B: the key is not in C or B, so it stays in A."
+        " 2. Next, swapping boxes B and C. The key remains in box A. 3. Swapping boxes E and B: the key remains in box A."
+        "</think> <answer> A </answer>"
+    )
+    r = row("A", ["CB", "BC", "EB"], completion)
+    assert step_counts(r) == (0, 0)
+    assert [o for o, _ in swap_steps(r)] == ["right", "right", "right"]
+
+
+def test_a_recap_after_the_last_step_is_not_part_of_it():
+    completion = (
+        " 1. Swap the contents of boxes C and E: the key moves from C to E. 2. Swap the contents of boxes A and E: the"
+        " key is in E, so it moves to A. Let me recap to make sure: start in C, then E, then A, and C was swapped first."
+        "</think> <answer> A </answer>"
+    )
+    assert outcomes("C", ["CE", "AE"], completion) == ["right", "right"]
+
+
+def test_instead_of_a_box_is_not_a_statement_of_where_the_key_is():
+    completion = " 1. Swap the contents of boxes C and A: after this swap, the key should be in box A instead of C.</think> <answer>A</answer>"
+    assert outcomes("C", ["CA"], completion) == ["right"]
+
+
+def test_a_numbered_recap_after_the_walkthrough_adds_no_steps():
+    completion = (
+        " The first swap is between boxes A and B. The key is in B, so it moves to A. Next, the swap is between boxes"
+        " C and D. The key is in A, so it stays in A. To summarize the steps: 1. Swap A and B: key moves to A."
+        " 2. Swap C and D: no change.</think> <answer> A </answer>"
+    )
+    r = row("B", ["AB", "CD"], completion)
+    assert step_counts(r) == (0, 0)
+    assert [o for o, _ in swap_steps(r)] == ["right", "right"]

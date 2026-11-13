@@ -9,8 +9,9 @@ PAIR = re.compile(r"\b([A-F])\s*(?:and|with|&)\s*(?:box\s+)?([A-F])\b")
 HEADER = re.compile(r"\d+\s*[.:)]\s*[^.:\n]*$")
 # Boxes named only to say the key is not there, or as a group, are not statements of where the key is.
 NOT_THERE = re.compile(
-    r"(?:\bnot|n't|\bnever|\bno key is)\s+(?:\w+\s+){0,2}?(?:in|to|into)\s+(?:either\s+)?(?:box(?:es)?\s+)?[A-F]\b"
+    r"(?:\bnot|n't|\bnever|\bno longer|\bno key is)\s+(?:\w+\s+){0,2}?(?:in|to|into)\s+(?:either\s+)?(?:box(?:es)?\s+)?[A-F]\b"
     r"(?:\s*(?:,|or|and|nor)\s*(?:box\s+)?[A-F]\b)*"
+    r"|\binstead of\s+(?:box\s+)?[A-F]\b"
 )
 GROUP = re.compile(r"\b[A-F]\s*(?:and|or|nor|with|&)\s*(?:box\s+)?[A-F]\b|\((?:\s*[A-F]\s*,)+[^)]*\)")
 PLACED = re.compile(r"\b(?:in|to|into|at)\s+(?:box\s+)?([A-F])\b")
@@ -19,7 +20,9 @@ LETTER = re.compile(r"\b[A-F]\b")
 SUMMING_UP = re.compile(
     r"(?:^|\. )[^.]*?(?:\bafter (?:all|both|these|following|performing|completing|the (?:two|four|eight|sixteen|\d+))\b"
     r"|\bfinal(?:ly)?\b|\banswer\b|\bquestion\b|\bin conclusion\b|\bat the end\b|\bends? up\b|\bto summarize\b"
-    r"|\bbox (?:that|which) (?:contains|holds|has)\b|\bbox containing\b|\bthroughout\b|\bso, after\b(?! this))",
+    r"|\bbox (?:that|which) (?:contains|holds|has)\b|\bbox containing\b|\bthroughout\b|\bso, after\b(?! this)"
+    r"|\blet me (?:re-?cap|double-?check|check|verify|re-?trace|go (?:through|over)|summari[sz]e|make sure)\b"
+    r"|\bputting (?:it|this|everything) (?:all )?together\b|\bto recap\b|\bin summary\b|\bafter tracking\b|\blet's summari[sz]e\b)",
     re.IGNORECASE,
 )
 
@@ -64,25 +67,29 @@ def step_texts(reasoning: str, mentions: list[re.Match | None]) -> list[str | No
     return texts
 
 
-def step_pairs(reasoning: str, expected: int) -> list[re.Match]:
-    """The pairs of boxes that look like the start of a step: those heading a numbered item if there are enough
-    of them, else those worded "boxes X and Y", else every pair named."""
+def parse_steps(reasoning: str, swaps: list[tuple[str, str]]) -> tuple[list[re.Match], list[re.Match | None]]:
+    """The pairs of boxes that start the reasoning's steps, and which of them takes up each swap.
+    Steps can start at pairs heading a numbered item, pairs worded "boxes X and Y", or any pair named (a narrower
+    set only when it has at least half as many pairs as there are swaps), and each set is matched to the swaps in
+    order, earliest or latest. The model repeats pairs inside a step, lists the swaps before working through them
+    and recaps them after, so the matching that covers the most swaps wins, then the one whose steps more often say
+    where the key is, then the narrower and earlier one."""
     named = list(PAIR.finditer(reasoning))
     heads = [m for m in named if HEADER.search(reasoning[max(0, m.start() - 80) : m.start()])]
     worded = [m for m in named if reasoning[: m.start()].endswith("boxes ")]
-    return next((ms for ms in (heads, worded) if 2 * len(ms) >= expected), named)
+    placed = lambda mentions: sum(bool(text and stated_boxes(text)) for text in step_texts(reasoning, mentions))
+    best = None
+    for pool in [ms for ms in (heads, worded) if 2 * len(ms) >= len(swaps)] + [named]:
+        for mentions in (align(swaps[::-1], pool[::-1])[::-1], align(swaps, pool)):
+            score = (sum(m is not None for m in mentions), placed(mentions))
+            if best is None or score > best[0]:
+                best = (score, pool, mentions)
+    return best[1], best[2]
 
 
 def swap_mentions(reasoning: str, swaps: list[tuple[str, str]]) -> list[re.Match | None]:
-    """Where the reasoning takes up each swap, matched in order by the pair of boxes it names.
-    The model repeats pairs inside a step and sometimes lists the swaps before working through them. So pairs
-    that head a numbered step are used when there are enough of them, then pairs worded "boxes X and Y", then
-    any pair; and of the earliest and the latest matching, the one whose steps more often place the key wins."""
-    pool = step_pairs(reasoning, len(swaps))
-    earliest = align(swaps[::-1], pool[::-1])[::-1]
-    latest = align(swaps, pool)
-    placed = lambda mentions: sum(bool(text and stated_boxes(text)) for text in step_texts(reasoning, mentions))
-    return latest if placed(latest) > placed(earliest) else earliest
+    """Where the reasoning takes up each swap, matched in order by the pair of boxes it names."""
+    return parse_steps(reasoning, swaps)[1]
 
 
 def stated_boxes(step: str) -> list[str]:
@@ -129,8 +136,12 @@ def step_counts(row: dict) -> tuple[int, int]:
     are counted as extra, from the first matched step on, so a pair repeated inside a step is not one."""
     swaps = puzzle(row)[0]
     reasoning = " ".join(row["completion"].partition("</think>")[0].split())
-    matched = [m for m in swap_mentions(reasoning, swaps) if m]
-    pool = step_pairs(reasoning, len(swaps))
+    pool, mentions = parse_steps(reasoning, swaps)
+    matched = [m for m in mentions if m]
+    # Pairs after the last step ends, in a recap of the whole puzzle, are not extra steps.
+    last = max((i for i, m in enumerate(mentions) if m), default=None)
+    end = mentions[last].end() + len(step_texts(reasoning, mentions)[last]) if last is not None else len(reasoning)
+    pool = [m for m in pool if m.start() < end]
     if not matched or len(pool) == len(PAIR.findall(reasoning)) and len(pool) > 2 * len(swaps):
         return len(swaps) - len(matched), 0
     spans = {m.span() for m in matched}
