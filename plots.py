@@ -663,6 +663,38 @@ def plot_lead(runs: list[str]):
     fig.savefig("figures/newline-lead.png", dpi=150)
 
 
+def plot_cutoffs(runs: list[str]):
+    width = 10
+    fig, axes = plt.subplots(2, len(runs), figsize=(5.5 * len(runs), 7), sharex=True, sharey=True, layout="constrained", squeeze=False)
+    for (top, bottom), run in zip(axes.T, runs):
+        data = load(run)["train"]
+        limit = json.loads(Path("runs", run, "args.json").read_text())["max_tokens"]
+        pooled = defaultdict(list)
+        for by_step in data.values():
+            for step, rows in by_step.items():
+                pooled[step] += rows
+        top.plot(*smoothed(pooled, newline), color="#eb6834", linewidth=2)
+        top.set_title(f"{limit:,}-token limit")
+        wrong = defaultdict(list)
+        for step, rows in pooled.items():
+            wrong[step // width * width] += [row["tokens"] >= limit - 2 for row in rows if not row["reward"]]
+        starts = sorted(wrong)
+        shares = [sum(wrong[s]) / len(wrong[s]) for s in starts]
+        bottom.bar([s + width / 2 for s in starts], shares, width - 2, color="#eda100")
+        for s, share in zip(starts, shares):
+            n = len(wrong[s])
+            bottom.text(s + width / 2, share + 0.01, f"{n / 1000:.1f}k" if n >= 1000 else n, ha="center", va="bottom", fontsize=7, color="0.3")
+        bottom.set_xlabel("Training step")
+    for ax in axes.flat:
+        ax.set_ylim(0, 1)
+        ax.yaxis.set_major_formatter("{x:.0%}")
+    axes[0, 0].set_ylabel("Completions with a newline")
+    axes[1, 0].set_ylabel("Wrong answers cut off")
+    fig.suptitle(json.loads(Path("runs", runs[0], "args.json").read_text())["model"].split("/")[-1])
+    Path("figures").mkdir(exist_ok=True)
+    fig.savefig("figures/cutoffs-newlines.png", dpi=150)
+
+
 def plot_push(run: str):
     data = load(run)["train"]
     model = json.loads(Path("runs", run, "args.json").read_text())["model"].split("/")[-1]
@@ -831,6 +863,9 @@ if __name__ == "__main__":
         sys.exit()
     if sys.argv[1] == "--lead":
         plot_lead(sys.argv[2:])
+        sys.exit()
+    if sys.argv[1] == "--cutoffs":
+        plot_cutoffs(sys.argv[2:])
         sys.exit()
     if sys.argv[1] in CORRELATIONS:
         plot_correlation(sys.argv[2], *CORRELATIONS[sys.argv[1]])
