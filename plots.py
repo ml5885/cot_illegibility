@@ -259,14 +259,21 @@ def plot_token_limit(run: str):
     rows = load(run)["train"]
     args = json.loads(Path("runs", run, "args.json").read_text())
     limit, half = args["max_tokens"], BIN // 2
-    fig, axes = plt.subplots(4, 2, figsize=(10, 10), sharex=True, height_ratios=[1.6, 3] * 2, layout="constrained")
+    fig, axes = plt.subplots(4, 2, figsize=(11, 9), sharex=True, height_ratios=[1, 3] * 2, layout="constrained")
     for i, level in enumerate(sorted(rows)):
         top, ax = axes[2 * (i // 2), i % 2], axes[2 * (i // 2) + 1, i % 2]
         starts = range(0, max(rows[level]) + 1, half)
         centers = [s + half / 2 for s in starts]
         bins = [sorted(r["tokens"] for step in range(start, start + half) for r in rows[level].get(step, [])) for start in starts]
         top.bar(centers, [sum(t >= limit - 2 for t in b) / len(b) for b in bins], half - 2, color="#eda100", label="Cut off")
-        top.plot(*smoothed(rows[level], newline), color="#eb6834", linewidth=2, label="With a newline")
+        right = ax.twinx()
+        right.plot(*smoothed(rows[level], newline), color="#eb6834", linewidth=2, label="Completions with a newline")
+        right.set_ylim(0, 1.06)
+        right.yaxis.set_major_formatter("{x:.0%}")
+        right.tick_params(axis="y", colors="#eb6834", right=i % 2 == 1, labelright=i % 2 == 1)
+        right.spines["right"].set_visible(i % 2 == 1)
+        if i % 2 == 1:
+            right.set_ylabel("With a newline", color="#eb6834")
         ax.fill_between(
             centers, [b[len(b) // 20] for b in bins], [b[-len(b) // 20] for b in bins], color="#2a78d6", alpha=0.25, linewidth=0,
             label="5th to 95th percentile",
@@ -284,13 +291,15 @@ def plot_token_limit(run: str):
         ax.grid(axis="y", color="0.9", linewidth=0.8)
         ax.set_axisbelow(True)
         if i % 2 == 0:
-            top.set_ylabel("Completions")
+            top.set_ylabel("Cut off")
             ax.set_ylabel("Completion tokens")
     for ax in axes[-1]:
         ax.set_xlabel("Training step")
-    top_handles, top_labels = axes[0, 0].get_legend_handles_labels()
-    handles, labels = axes[1, 0].get_legend_handles_labels()
-    fig.legend(top_handles + handles, top_labels + labels, loc="outside lower center", ncol=3)
+    handles, labels = [], []
+    for source in (axes[1, 0], right, axes[0, 0]):
+        h, l = source.get_legend_handles_labels()
+        handles, labels = handles + h, labels + l
+    fig.legend(handles, labels, loc="outside lower center", ncol=3)
     fig.suptitle(f"{args['model'].split('/')[-1]}: completion length and the token limit")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-token-limit.png", dpi=150)
