@@ -649,8 +649,9 @@ def plot_lead(runs: list[str]):
         xs, ys = zip(*points)
         mean_x, mean_y = sum(xs) / len(xs), sum(ys) / len(ys)
         r = sum((x - mean_x) * (y - mean_y) for x, y in points) / (sum((x - mean_x) ** 2 for x in xs) * sum((y - mean_y) ** 2 for y in ys)) ** 0.5
-        trained = "/".join(map(str, sorted(data)))
-        ax.scatter(xs, ys, color=color, s=36, label=f"Trained on {trained} swaps (r = {r:+.2f}, {len(points)} windows)")
+        trained = ", ".join(map(str, sorted(data)))
+        label = f"r = {r:+.2f}, {len(points)} windows" + (f" (trained on {trained} swaps)" if len(runs) > 1 else "")
+        ax.scatter(xs, ys, color=color, s=36, label=label)
     ax.axhline(0, color="gray", linestyle=":", linewidth=1)
     ax.axvline(0, color="gray", linestyle=":", linewidth=1)
     ax.set_xlabel("Advantage gap for newline responses in a 5-step window")
