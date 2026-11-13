@@ -211,7 +211,39 @@ function renderChips() {
 
 const FONT = { family: '"DejaVu Serif", Georgia, serif', color: "#1f1f1f", size: 13 };
 const BLUE = "#2a78d6", GAP = 0.055;
-let panels = [];
+let panels = [], titles = [];
+
+function at(xs, ys, x) {
+  let best = null, distance = 5.5;
+  xs.forEach((value, i) => {
+    if (ys[i] !== null && Math.abs(value - x) < distance) { best = ys[i]; distance = Math.abs(value - x); }
+  });
+  return best;
+}
+const percent = v => v === null ? "–" : `${Math.round(v * 100)}%`;
+const signed = v => v === null ? "–" : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}`;
+
+function tooltip(p, step) {
+  const d = p.d, rows = [`<b>Step ${step}</b>`,
+    `Median: ${at(d.centers, d.median, step) ?? "–"} tokens`,
+    `5th to 95th percentile: ${at(d.centers, d.low, step) ?? "–"} to ${at(d.centers, d.high, step) ?? "–"}`,
+    `Longest: ${at(d.centers, d.longest, step) ?? "–"}`];
+  for (const line of lines) {
+    const dot = `<span style="color:${line.color}">●</span>`;
+    if (line.kind === "advantage") {
+      const a = d.advantage[line.name];
+      rows.push(`${dot} ${a.yes}: ${signed(at(a.x, a.with, step))}`, `${dot} ${a.no}: ${signed(at(a.x, a.without, step))}`);
+    } else if (line.name === "Cut off at the token limit") {
+      rows.push(`${dot} Cut off: ${percent(at(d.centers, d.cut, step))}`);
+    } else {
+      rows.push(`${dot} ${line.name}: ${percent(at(d.steps, d.measures[line.name], step))}`);
+    }
+  }
+  const right = step > 110;
+  return { text: rows.join("<br>"), xref: p.x, x: step, yref: "paper", y: p.row[1] - 0.01, xanchor: right ? "right" : "left", yanchor: "top",
+    xshift: right ? -8 : 8, showarrow: false, align: "left", bgcolor: "rgba(255,255,255,0.95)", bordercolor: "#8a8a8a", borderwidth: 1, borderpad: 4,
+    font: { size: 11 } };
+}
 
 function draw() {
   [...runs.children].forEach((b, i) => b.classList.toggle("on", runNames[i] === run));
@@ -222,7 +254,7 @@ function draw() {
   const domains = [[0, 0.46], [0.54, 1 - GAP * extra]], rows = [[0.56, 1], [0, 0.44]];
   panels = [];
   const traces = [], layout = {
-    font: FONT, paper_bgcolor: "#ffffff", plot_bgcolor: "#ffffff", hovermode: "x unified", showlegend: true,
+    font: FONT, paper_bgcolor: "#ffffff", plot_bgcolor: "#ffffff", hovermode: "x", showlegend: true,
     legend: { orientation: "h", x: 0.5, xanchor: "center", y: -0.13, bordercolor: "#000", borderwidth: 1 },
     margin: { l: 70, r: 40, t: 40, b: 120 }, annotations: [],
   };
@@ -247,38 +279,41 @@ function draw() {
         for (const [key, dash, side] of [["with", "solid", "yes"], ["without", "dash", "no"]]) {
           traces.push({ x: a.x, y: a[key], error_y: { type: "data", array: a[`${key}_error`], color: line.color, thickness: 1, width: 2 },
             mode: "lines+markers", line: { color: line.color, width: 2, dash }, marker: { size: 5 }, xaxis: x, yaxis: axis,
-            name: a[side], legendgroup: `${line.name}${key}`, showlegend: first, hovertemplate: "%{y:.2f}" });
+            name: a[side], legendgroup: `${line.name}${key}`, showlegend: first, hoverinfo: "none" });
         }
       } else if (line.name === "Cut off at the token limit") {
         traces.push({ type: "bar", x: d.centers, y: d.cut, marker: { color: line.color, opacity: 0.8 }, width: 8, xaxis: x, yaxis: axis,
-          name: line.name, legendgroup: line.name, showlegend: first, hovertemplate: "%{y:.0%}" });
+          name: line.name, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
       } else {
         traces.push({ x: d.steps, y: d.measures[line.name], mode: "lines", line: { color: line.color, width: 2 }, xaxis: x, yaxis: axis,
-          name: line.name, legendgroup: line.name, showlegend: first, hovertemplate: "%{y:.0%}" });
+          name: line.name, legendgroup: line.name, showlegend: first, hoverinfo: "none" });
       }
     });
     layout[`yaxis${60 + n}`] = { overlaying: `y${n}`, anchor: x, side: "left", range: [0, limit * 1.06], gridcolor: "#ececec", zeroline: false,
       title: i % 2 ? "" : "Completion tokens" };
-    panels.push({ x, row });
+    panels.push({ x, row, col, d, level });
     layout.annotations.push({ text: `${level} swaps`, x: (col[0] + col[1]) / 2, y: row[1] + 0.02, xref: "paper", yref: "paper", showarrow: false, font: { size: 15 } });
     traces.push({ x: d.centers, y: d.low, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, hoverinfo: "skip", showlegend: false, legendgroup: "band" });
     traces.push({ x: d.centers, y: d.high, xaxis: x, yaxis: tokens, mode: "lines", line: { width: 0 }, fill: "tonexty",
       fillcolor: "rgba(42,120,214,0.25)", name: "5th to 95th percentile", legendgroup: "band", showlegend: first, hoverinfo: "skip" });
     traces.push({ x: d.centers, y: d.median, xaxis: x, yaxis: tokens, mode: "lines", line: { color: BLUE, width: 2 }, name: "Median",
-      legendgroup: "median", showlegend: first, hovertemplate: "%{y:.0f} tokens" });
+      legendgroup: "median", showlegend: first, hoverinfo: "none" });
     traces.push({ x: d.centers, y: d.longest, xaxis: x, yaxis: tokens, mode: "markers", marker: { color: "#595959", size: 6 }, name: "Longest",
-      legendgroup: "longest", showlegend: first, hovertemplate: "%{y:.0f} tokens" });
+      legendgroup: "longest", showlegend: first, hoverinfo: "none" });
     traces.push({ x: [0, 200], y: [limit, limit], xaxis: x, yaxis: tokens, mode: "lines", line: { color: "#000", dash: "dash", width: 1 },
       name: "Token limit", legendgroup: "limit", showlegend: first, hoverinfo: "skip" });
   });
+  titles = layout.annotations;
   Plotly.react("plot", traces, layout, { responsive: true, displaylogo: false });
 }
 
 const plot = document.getElementById("plot");
 function cursor(x) {
-  const shapes = x === null ? [] : panels.map(p => ({ type: "line", xref: p.x, x0: x, x1: x, yref: "paper", y0: p.row[0], y1: p.row[1],
+  if (x === null) return Plotly.relayout(plot, { shapes: [], annotations: titles });
+  const step = Math.round(x);
+  const shapes = panels.map(p => ({ type: "line", xref: p.x, x0: step, x1: step, yref: "paper", y0: p.row[0], y1: p.row[1],
     line: { color: "#8a8a8a", width: 1 }, layer: "above" }));
-  Plotly.relayout(plot, { shapes });
+  Plotly.relayout(plot, { shapes, annotations: titles.concat(panels.map(p => tooltip(p, step))) });
 }
 draw();
 plot.on("plotly_hover", event => cursor(event.xvals ? event.xvals[0] : event.points[0].x));
