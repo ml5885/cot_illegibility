@@ -702,10 +702,17 @@ def plot_cutoffs(runs: list[str]):
     fig.savefig("figures/cutoffs-newlines.png", dpi=150)
 
 
-def plot_length_advantage(runs: list[str]):
-    """Newline use, and the mean advantage of responses longer or shorter than their group's mean, for several runs."""
+ADVANTAGE_SPLITS = {
+    "--length-advantage": (
+        lambda row, group: row["tokens"] > sum(r["tokens"] for r in group) / len(group), "Longer than its group's mean", "Shorter", "length-advantage",
+    ),
+    "--newline-advantage": (lambda row, group: bool(newline(row)), "With a newline", "Without", "newline-advantage"),
+}
+
+
+def plot_advantage_split(runs: list[str], has, yes: str, no: str, name: str):
+    """Newline use, and the mean advantage of responses with and without a feature, one column per run."""
     width = 10
-    longer = lambda row, group: row["tokens"] > sum(r["tokens"] for r in group) / len(group)
     fig, axes = plt.subplots(2, len(runs), figsize=(5.5 * len(runs), 7), sharex=True, layout="constrained", squeeze=False)
     for (top, bottom), run in zip(axes.T, runs):
         data = load(run)["train"]
@@ -718,12 +725,11 @@ def plot_length_advantage(runs: list[str]):
         top.yaxis.set_major_formatter("{x:.0%}")
         top.set_title(f"{limit:,}-token limit")
         starts = range(0, steps[-1] + 1, width)
-        for side, label, color in [(True, "Longer than its group's mean", PALETTE[1]), (False, "Shorter", PALETTE[0])]:
-            bins = [[a for s in range(start, start + width) for row, a, group in scored.get(s, []) if longer(row, group) == side] for start in starts]
-            kept = [(start + width / 2, b) for start, b in zip(starts, bins) if len(b) >= MIN_SAMPLES]
-            means = [sum(b) / len(b) for _, b in kept]
-            errors = [(sum((a - m) ** 2 for a in b) / (len(b) - 1) / len(b)) ** 0.5 for (_, b), m in zip(kept, means)]
-            bottom.errorbar([x for x, _ in kept], means, yerr=errors, fmt="o-", color=color, label=label, capsize=2, markersize=4)
+        for side, label, color in [(True, yes, PALETTE[1]), (False, no, PALETTE[0])]:
+            bins = [[a for s in range(start, start + width) for row, a, group in scored.get(s, []) if has(row, group) == side] for start in starts]
+            means = [sum(b) / len(b) if len(b) >= MIN_SAMPLES else float("nan") for b in bins]
+            errors = [(sum((a - m) ** 2 for a in b) / (len(b) - 1) / len(b)) ** 0.5 if len(b) >= MIN_SAMPLES else 0 for b, m in zip(bins, means)]
+            bottom.errorbar([s + width / 2 for s in starts], means, yerr=errors, fmt="o-", color=color, label=label, capsize=2, markersize=4)
         bottom.axhline(0, color="gray", linestyle=":", linewidth=1)
         bottom.set_ylim(-1.5, 1.5)
         bottom.set_xlabel("Training step")
@@ -735,7 +741,7 @@ def plot_length_advantage(runs: list[str]):
     axes[1, 0].legend(loc="upper left", fontsize=10)
     fig.suptitle(json.loads(Path("runs", runs[0], "args.json").read_text())["model"].split("/")[-1])
     Path("figures").mkdir(exist_ok=True)
-    fig.savefig("figures/length-advantage.png", dpi=150)
+    fig.savefig(f"figures/{name}.png", dpi=150)
 
 
 def plot_push(run: str):
@@ -910,8 +916,8 @@ if __name__ == "__main__":
     if sys.argv[1] == "--cutoffs":
         plot_cutoffs(sys.argv[2:])
         sys.exit()
-    if sys.argv[1] == "--length-advantage":
-        plot_length_advantage(sys.argv[2:])
+    if sys.argv[1] in ADVANTAGE_SPLITS:
+        plot_advantage_split(sys.argv[2:], *ADVANTAGE_SPLITS[sys.argv[1]])
         sys.exit()
     if sys.argv[1] in CORRELATIONS:
         plot_correlation(sys.argv[2], *CORRELATIONS[sys.argv[1]])
