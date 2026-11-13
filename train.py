@@ -91,6 +91,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--vllm-memory", type=float, default=0.42)
     parser.add_argument("--max-context", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--resume", help="checkpoint directory to continue training from; raise --max-steps past its step")
     return parser.parse_args(argv)
 
 
@@ -124,7 +125,7 @@ def main():
     # vLLM's transformers backend patches the backbone class's __call__ in place to consult this
     # flag, which only its own instances set; the trainer's copy must take the plain forward.
     type(trainer.model.get_base_model().base_model).do_not_compile = True
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume)
     trainer.save_model(str(out / "final"))
 
 

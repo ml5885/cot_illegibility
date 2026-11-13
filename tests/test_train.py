@@ -82,3 +82,8 @@ def test_one_optimizer_step_uses_every_prompt_once(prompts, generations, batch):
 def test_incompatible_batch_shapes_are_rejected(prompts, generations, batch):
     with pytest.raises(AssertionError):
         config("--prompts-per-step", str(prompts), "--generations", str(generations), "--batch-size", str(batch))
+
+
+def test_resume_is_optional_and_passed_through():
+    assert parse_args(["--task", "swaps", "--name", "t"]).resume is None
+    assert parse_args(["--task", "swaps", "--name", "t", "--resume", "runs/t/checkpoint-100"]).resume == "runs/t/checkpoint-100"
