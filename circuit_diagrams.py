@@ -200,13 +200,12 @@ def localization():
 
     # Hypotheses and the next token each predicts for the patched base run.
     y = readouts["base"][2] + 0.95
-    x0, x1 = xs["source"], xs["base"] + 0.4
-    c.text(x0, y, "Hypothesis", BODY, color="0.25")
+    x0, x1 = xs["source"], xs["base"] + 1.6
     c.text(x1, y, "Base run after the patch predicts", BODY, color="0.25")
     c.ax.plot([x0, xs["base"] + col], [c.height - (y + 0.28)] * 2, color="0.7", lw=1)
-    rows = [("1. Step 4 copies the box from what step 3 wrote", "C", EDIT, ""),
-            ("2. Step 4 tracks the key from the prompt; the text only reports it", "F", GREY, ""),
-            ("3. Both routes contribute", "C/F", READ, "partway toward C")]
+    rows = [("Hypothesis 1. Step 4 copies the key's location from step 3's written location", "C", EDIT, ""),
+            ("Hypothesis 2. Step 4 tracks the key's location from the prompt", "F", GREY, ""),
+            ("Hypothesis 3. Step 4 uses both", "C/F", READ, "partway toward C")]
     for j, (hypothesis, letter, color, note) in enumerate(rows):
         yy = y + 0.75 + 0.6 * j
         c.text(x0, yy, hypothesis, BODY)
