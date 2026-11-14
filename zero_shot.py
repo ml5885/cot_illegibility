@@ -104,7 +104,7 @@ def figure(results: dict[str, dict], baselines: dict[str, dict[int, float]]):
     ax.yaxis.set_major_formatter("{x:.0%}")
     ax.grid(axis="y", color="0.9", linewidth=0.8)
     ax.legend(loc="upper right", fontsize=10)
-    ax.set_title("Base models answering with no reasoning")
+    ax.set_title("No-reasoning performance")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig("figures/zero-shot.png", dpi=150)
 
