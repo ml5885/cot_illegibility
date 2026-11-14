@@ -13,6 +13,7 @@ body { font: 13px/1.6 'SF Mono', SFMono-Regular, Menlo, monospace; background: #
 nav { padding: 10px 48px; border-bottom: 1px solid #eee; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; background: #fff; z-index: 10; }
 nav .stats { color: #666; flex-basis: 100%; margin-bottom: 2px; }
 nav select, nav input { font: inherit; padding: 3px 6px; border: 1px solid #ccc; background: #fff; }
+#frun { width: 22ch; text-overflow: ellipsis; }
 nav input[type="search"] { width: 200px; }
 nav label { color: #444; }
 nav button { font: inherit; padding: 3px 10px; cursor: pointer; border: 1px solid #ccc; background: #fff; }
@@ -697,7 +698,7 @@ function toggleSidebar() {
   $('overlay').classList.toggle('open');
 }
 
-$('frun').addEventListener('change', () => { setParams({ file: '', i: 0 }); loadRun($('frun').value); });
+$('frun').addEventListener('change', () => { $('frun').title = $('frun').value; setParams({ file: '', i: 0 }); loadRun($('frun').value); });
 $('ffile').addEventListener('change', () => loadFile($('ffile').value, true));
 for (const id of ['foutcome', 'flevel', 'fsort']) $(id).addEventListener('change', () => applyFilter(true));
 $('fws').addEventListener('change', render);
@@ -752,6 +753,7 @@ document.addEventListener('keydown', e => {
   const requested = params().get('run');
   const run = runs.includes(requested) ? requested : runs[0];
   fillSelect($('frun'), runs, run);
+  $('frun').title = run;
   $('facross').checked = params().get('across') === '1';
   $('fcurves').checked = params().get('curves') === '1';
   loadRun(run);
