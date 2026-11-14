@@ -159,7 +159,7 @@ def localization():
     swapped everywhere) into the base run, and read the box step 4 writes next."""
     after = track(START, SWAPS)
     assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(17.6, 14.2)
+    c = Canvas(17.6, 12.5)
     col, gutter, top = 7.9, 1.2, 0.45
     xs = {"source": 0.3, "base": 0.3 + col + gutter}
 
@@ -198,22 +198,16 @@ def localization():
         r0, r1, ry = readouts[name]
         c.text(r1 + 0.15, ry, f"← predicted next token: {letter}", BODY, ha="left", color=READ)
 
-    # Hypotheses and the next token each predicts for the patched base run.
-    y = readouts["base"][2] + 0.95
-    x0, x1 = xs["source"], xs["base"] + 1.6
-    c.text(x0, y, "What the result would tell us", BODY, color="0.25")
-    c.text(x1, y, "Base run after the patch predicts", BODY, color="0.25")
-    c.ax.plot([x0, xs["base"] + col], [c.height - (y + 0.28)] * 2, color="0.7", lw=1)
-    rows = [("Step 4 gets the key's location from step 3's written location", "C", EDIT, ""),
-            ("Step 3's written location carries part of it; the rest comes from elsewhere", "C/F", READ, "partway toward C"),
-            ("Step 4 gets it from somewhere else; patching other tokens tells where", "F", GREY, "")]
-    for j, (hypothesis, letter, color, note) in enumerate(rows):
-        yy = y + 0.75 + 0.6 * j
-        c.text(x0, yy, hypothesis, BODY)
-        c.chip(x1 + 0.35, yy, letter, color, width=0.62 if len(letter) > 1 else 0.48, height=0.44)
-        if note:
-            c.text(x1 + 0.8, yy, note, BODY, color=color)
-    c.text(x0, y + 0.75 + 0.6 * len(rows) + 0.15, "Highlighted: the letters that differ between the runs.", LABEL + 1, color=GREY)
+    # The expected outcome if step 4 relies on what step 3 wrote.
+    y = readouts["base"][2] + 1.0
+    x0 = xs["source"]
+    lead = "If the written reasoning is faithful, patching should change the base run's predicted next token from"
+    c.text(x0, y, lead, BODY)
+    x = x0 + c.width(lead, BODY) + 0.4
+    c.chip(x, y, "F", GREY, width=0.48, height=0.44)
+    c.text(x + 0.42, y, "to", BODY, ha="center")
+    c.chip(x + 0.84, y, "C", EDIT, width=0.48, height=0.44)
+    c.text(x0, y + 0.65, "Highlighted: the letters that differ between the runs.", LABEL + 1, color=GREY)
     c.save("circuits-localization")
 
 
