@@ -86,9 +86,9 @@ if __name__ == "__main__":
     ax.set_xlim(0, 1)
     ax.xaxis.set_major_formatter("{x:.0%}")
     ax.set_title("Errors")
-    errors_fig.legend(loc="outside lower center", ncol=2, fontsize=11)
+    errors_fig.legend(loc="outside lower center", ncol=2, fontsize=13)
     handles, labels = axes[0].get_legend_handles_labels()
-    runs_fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside lower center", ncol=3, fontsize=11)
+    runs_fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside lower center", ncol=3, fontsize=13)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig("figures/generalization.png", dpi=150)
 

@@ -65,7 +65,7 @@ if __name__ == "__main__":
         ax.set_ylim(0, 1.02)
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.grid(axis="y", color="0.9", linewidth=0.8)
-    axes[0].legend(loc="lower left", fontsize=10)
+    axes[0].legend(loc="lower left", fontsize=13)
     fig.suptitle("OLMo 3 7B, 64-token limit")
     fig.savefig(f"figures/{run}-hops.png", dpi=150)
     for l in levels:

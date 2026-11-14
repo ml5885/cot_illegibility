@@ -107,7 +107,7 @@ def figure(panels: dict[str, dict[str, dict]], baselines: dict[str, dict[int, fl
         ax.grid(axis="y", color="0.9", linewidth=0.8)
         ax.set_title(title)
     axes[0].set_ylabel("Probability on the correct box\n(among the six box letters)")
-    axes[-1].legend(loc="upper right", fontsize=10)
+    axes[-1].legend(loc="upper right", fontsize=13)
     fig.suptitle("No-reasoning performance")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig("figures/zero-shot.png", dpi=150)
@@ -136,7 +136,7 @@ def entity_figure():
         ax.grid(axis="y", color="0.9", linewidth=0.8)
         ax.set_title(title)
     axes[0].set_ylabel("Probability on the correct box\n(among the six box letters)")
-    axes[-1].legend(loc="upper right", fontsize=10)
+    axes[-1].legend(loc="upper right", fontsize=13)
     fig.suptitle("Entity tracking without reasoning")
     fig.savefig("figures/entity.png", dpi=150)
 

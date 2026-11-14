@@ -247,7 +247,7 @@ def figure(run: str, groups: list[dict]):
     ax.set_axisbelow(True)
     ax.tick_params(axis="y", length=0, pad=6)
     ax.spines["left"].set_visible(False)
-    ax.legend(loc="upper right", fontsize=10)
+    ax.legend(loc="upper right", fontsize=13)
 
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-errors.png", dpi=150)

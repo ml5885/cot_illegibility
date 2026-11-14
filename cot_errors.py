@@ -72,18 +72,20 @@ def first_wrong_step(row: dict) -> str:
     return "other"
 
 
-def shares(ax, rows: dict[str, list[str]], parts: list[tuple[str, str, str]], title: str):
+def shares(fig, rows: dict[str, list[str]], parts: list[tuple[str, str, str]], title: str, ncol: int, labels: bool = True):
+    ax = fig.subplots()
     for i, (model, values) in enumerate(rows.items()):
         counts, left = Counter(values), 0.0
         for key, label, color in parts:
             width = counts[key] / len(values)
             ax.barh(i, width, left=left, color=color, edgecolor="white", label=label if i == 0 else None)
             left += width
-    ax.set_yticks(range(len(rows)), list(rows))
+    ax.set_yticks(range(len(rows)), list(rows) if labels else [])
+    ax.invert_yaxis()
     ax.set_xlim(0, 1)
     ax.xaxis.set_major_formatter("{x:.0%}")
     ax.set_title(title)
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.08), ncol=2, fontsize=10)
+    fig.legend(loc="outside lower center", ncol=ncol, fontsize=13)
 
 
 if __name__ == "__main__":
@@ -98,9 +100,10 @@ if __name__ == "__main__":
               + f"\n{'':16s} first wrong step: " + "  ".join(f"{k} {v / len(steps[model]):.2f}" for k, v in Counter(steps[model]).most_common())
               + f"\n{'':16s} wrong answers naming the starting box: "
               + f"{sum(BOX.findall(ANSWER.findall(r['completion'])[-1])[0] == START.search(r['prompt']).group(1) for r in start) / len(start):.2f}")
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5.8), layout="constrained", sharey=True)
-    shares(axes[0], causes, CAUSES, "Common errors")
-    shares(axes[1], steps, STEPS, "Common first error")
-    axes[0].invert_yaxis()  # shared with the right panel
+    # One subfigure per panel, so each legend sits under its own panel.
+    fig = plt.figure(figsize=(16, 7), layout="constrained")
+    left, right = fig.subfigures(1, 2, width_ratios=[1.1, 1])
+    shares(left, causes, CAUSES, "Common errors", ncol=2)
+    shares(right, steps, STEPS, "Common first error", ncol=1, labels=False)
     fig.suptitle("Base models with reasoning")
     fig.savefig("figures/cot-errors.png", dpi=150)

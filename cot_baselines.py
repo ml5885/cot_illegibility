@@ -55,6 +55,6 @@ if __name__ == "__main__":
         ax.set_title(title)
     axes[0].set_ylabel("Accuracy")
     handles, labels = axes[-1].get_legend_handles_labels()
-    fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside right center", fontsize=10)
+    fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside right center", fontsize=13)
     fig.suptitle("Performance with reasoning")
     fig.savefig("figures/cot-baselines.png", dpi=150)
