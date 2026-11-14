@@ -186,7 +186,7 @@ def figure(run: str, groups: list[dict]):
 
     # Fixed layout in inches, so every title starts at the same left margin above the row labels.
     width, label_margin, margin, row = 13, 3.3, 0.25, 0.42
-    header, title_gap, block_gap = 0.45, 0.4, 0.3
+    header, title_gap, block_gap = 0.5, 0.35, 0.35
     heights = [(len(rows) + 0.6) * row for _, rows, _ in blocks] + [0.55 * (len(skips) + 0.2)]
     total = 0.7 + header + sum(heights) + len(heights) * (title_gap + block_gap) + 0.3
     fig = plt.figure(figsize=(width, total))
@@ -216,8 +216,11 @@ def figure(run: str, groups: list[dict]):
         ax.set_yticks([*range(len(rows)), len(rows) - 0.2], [label for _, label in rows] + ["Count"])
         ax.get_yticklabels()[-1].set_color("0.45")
         ax.set_ylim(len(rows) + 0.1, -0.5)
-        ax.set_xlim(-0.55, max(col.values()) + 0.55)
+        ax.set_xlim(-0.46, max(col.values()) + 0.46)
         ax.tick_params(length=0)
+        ax.tick_params(axis="y", pad=(label_margin - margin) * 72)
+        for label in ax.get_yticklabels():
+            label.set_horizontalalignment("left")
         for spine in ax.spines.values():
             spine.set_visible(False)
         if i == 0:
@@ -245,7 +248,9 @@ def figure(run: str, groups: list[dict]):
     ax.xaxis.set_major_formatter("{x:.0%}")
     ax.grid(axis="x", color="0.9", linewidth=0.8)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="y", length=0)
+    ax.tick_params(axis="y", length=0, pad=(label_margin - margin) * 72)
+    for label in ax.get_yticklabels():
+        label.set_horizontalalignment("left")
     ax.spines["left"].set_visible(False)
     ax.legend(loc="upper right", fontsize=10)
 
