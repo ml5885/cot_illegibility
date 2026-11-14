@@ -62,7 +62,9 @@ PLAIN = Format(
     "\nAnswer:",
     split_plain,
 )
-FORMATS = {"tags": TAGS, "plain": PLAIN}
+# The question and "Answer:", with no chat framing or tags; for answering with no reasoning only.
+BARE = Format("{}\nAnswer:", "\n", "", lambda completion: ("", completion.split("\n")[0]))
+FORMATS = {"tags": TAGS, "plain": PLAIN, "bare": BARE}
 
 
 @dataclass
