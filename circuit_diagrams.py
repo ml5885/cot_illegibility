@@ -4,6 +4,7 @@ computed here from the puzzle under each hypothesis; nothing in these figures is
 uv run --no-project --with matplotlib python circuit_diagrams.py
 """
 
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -15,9 +16,22 @@ plt.rcParams.update({"font.family": "serif", "text.hinting": "none"})  # unhinte
 PROMPT, TEXT, EDIT, READ, GREY = "#2a78d6", "#1baf7a", "#eb6834", "#7a4fc4", "0.45"
 BODY, LABEL, HEAD = 17, 14, 19
 
-# swaps-7b-tags-long, step 200, held-out 4-swap puzzle (answered correctly).
-START = "A"
-SWAPS = [("D", "E"), ("E", "A"), ("E", "B"), ("B", "D")]
+# swaps-7b-tags-long, step 200, held-out 8-swap puzzle (answered A, correct). The response is verbatim up to the readout in step 4.
+START = "B"
+SWAPS = [("F", "D"), ("E", "A"), ("B", "F"), ("F", "A"), ("E", "D"), ("C", "E"), ("B", "C"), ("F", "D")]
+QUESTION = ("There are 6 boxes labeled A to F. A key is in box B. Swap the contents of boxes F and D. Swap the contents of boxes E and A. "
+            "Swap the contents of boxes {s3a} and {s3b}. Swap the contents of boxes F and A. Swap the contents of boxes E and D. "
+            "Swap the contents of boxes C and E. Swap the contents of boxes B and C. Swap the contents of boxes F and D. "
+            "Which box contains the key? Answer with the letter of the box.")
+RESPONSE = ("Let's break down the problem step by step to determine where the key ends up after all the swaps. Initially, the key is in "
+            "box B. We need to track the key's movements through each swap operation.\n"
+            "1. Swap the contents of boxes F and D: Since the key is currently in box B, this swap doesn't affect the key. "
+            "So the key remains in box B.\n"
+            "2. Swap the contents of boxes E and A: Again, the key is in box B, so this swap also doesn't affect the key. "
+            "The key remains in box B.\n"
+            "3. Swap the contents of boxes B and F: The key is currently in box B, so swapping boxes B and F would move the key from "
+            "box B to box {to}. So now the key is in box {now}.\n"
+            "4. Swap the contents of boxes F and A: The key is currently in box")
 # swaps-7b-tags-v2, step 5, training 8-swap puzzle: after writing swap 5 (E, D) the response jumps to swap 8, which follows
 # the later copy of (E, D) at swap 7. The landing pair is unique in the prompt and starts with a different letter from swap 6.
 LOOKUP_START = "E"
@@ -78,6 +92,32 @@ class Canvas:
                          arrowprops=dict(arrowstyle="-|>", color=color, lw=lw, shrinkA=0, shrinkB=0,
                                          connectionstyle=f"arc3,rad={rad}", mutation_scale=20), zorder=4)
 
+    def flow(self, x, y, width, parts, size=13, line=0.29) -> tuple[float, dict]:
+        """Wrap parts (text, or (text, colour) for a highlighted letter, or (text, colour, "box") for a readout) into a column
+        starting at (x, y). "\n" starts a new paragraph. Returns the y of the last line and the centres of highlighted parts."""
+        cx, places = x, {}
+        for part in parts:
+            text, color, style = (part, None, None) if isinstance(part, str) else (*part, None)[:3]
+            for word in re.findall(r"\n|[ ]*\S+|[ ]+", text):
+                if word == "\n":
+                    cx, y = x, y + line * 1.3
+                    continue
+                if cx + self.width(word, size) > x + width and cx > x:
+                    cx, y, word = x, y + line, word.lstrip()
+                if cx == x:
+                    word = word.lstrip()
+                lead = self.width(word[: len(word) - len(word.lstrip())], size) if word.startswith(" ") else 0.0
+                w = self.width(word.lstrip(), size)
+                x0 = cx + lead
+                if color:
+                    pad = 0.035
+                    face = "white" if style == "box" else tint(color, 0.35)
+                    self.box(x0 - pad, y - 0.14, x0 + w + pad, y + 0.14, face=face, edge=color, lw=1.6, radius=0.04)
+                    places.setdefault(color, []).append((x0 + w / 2, y))
+                self.text(x0, y, word.lstrip(), size, ha="left", color=color if style == "box" else "0.1")
+                cx = x0 + w
+        return y, places
+
     def note(self, x, y, s, color, ha="left"):
         self.text(x, y, s, LABEL, ha=ha, color=color, style="italic", linespacing=1.25)
 
@@ -87,53 +127,64 @@ class Canvas:
         plt.close(self.fig)
 
 
-def readouts():
-    """Where does the location at R1 come from: the model's own step 2, or the prompt? R3 is the update."""
-    assert track(START, SWAPS) == ["A", "A", "E", "B", "D"]
-    c = Canvas(11.9, 5.0)
-    c.text(0.35, 0.4, "Response", HEAD)
-    c.text(8.3, 0.4, "Prompt", HEAD)
-    c.box(0.3, 0.75, 6.75, 4.75)
-    c.box(8.25, 0.75, 11.6, 4.75)
+def relabel(text: str, a: str, b: str) -> str:
+    """Swap two box names wherever they name a box (not in "labeled A to F")."""
+    return re.sub(r"\b(box|boxes|and) ([A-F])\b", lambda m: f"{m.group(1)} {({a: b, b: a}).get(m.group(2), m.group(2))}", text)
 
-    lines = [("Key in box A", None), ("Swap D and E", PROMPT), ("Swap E and A", PROMPT), ("Swap E and B", None), ("Swap B and D", None)]
-    rows = [1.3, 2.0, 2.65, 3.3, 3.95]
-    for (s, color), y in zip(lines, rows):
-        if color:
-            c.chip(9.92, y, s, color, width=2.6, height=0.52)
-        else:
-            c.text(9.92, y, s, ha="center")
 
-    right, cx = 5.15, 5.6
-    c.text(0.55, 1.05, "step 2", LABEL, color=GREY)
-    c.text(right, 1.55, "… so now the key is in box", ha="right")
-    c.chip(cx, 1.55, "E", TEXT, width=0.52)
-    c.text(0.55, 2.45, "step 3", LABEL, color=GREY)
-    c.text(right, 2.95, "The key is currently in box", ha="right")
-    r1 = c.chip(cx, 2.95, "?", READ, filled=False, width=0.52, text_color=READ)
-    c.text(cx, 3.37, "R1", LABEL, ha="center", color=READ)
-    c.text(right, 4.0, "… move the key from box E to box", ha="right")
-    c.chip(cx, 4.0, "?", READ, filled=False, width=0.52, text_color=READ)
-    c.text(cx, 4.42, "R3", LABEL, ha="center", color=READ)
+def localization():
+    """Patching on the full source and base runs: copy activations at the highlighted tokens from source into base."""
+    after = track(START, SWAPS)
+    assert after[3] == "F" and after[-1] == "A"
+    c = Canvas(14.6, 9.1)
+    col, gutter, top = 6.4, 1.2, 0.45
+    xs = [0.3, 0.3 + col + gutter]
+    for i, (x, title, sub, swap) in enumerate([(xs[0], "Source run", "F and C swapped everywhere", ("F", "C")),
+                                               (xs[1], "Base run", "the real response", None)]):
+        c.text(x, top, title, HEAD)
+        c.text(x + c.width(title, HEAD) + 0.15, top + 0.02, sub, LABEL, color=GREY, style="italic")
+        rel = (lambda t: relabel(t, *swap)) if swap else (lambda t: t)
+        q, rest = QUESTION.split("{s3a}")
+        s3a, s3b = ("B", "C") if swap else ("B", "F")
+        loc = "C" if swap else "F"
+        prompt = [rel(q), (s3a, PROMPT), " and ", (s3b, PROMPT), rel(rest.split("{s3b}")[1])]
+        y, _ = c.flow(x, top + 0.6, col, prompt)
+        c.ax.plot([x, x + col], [c.height - (y + 0.28)] * 2, color="0.8", lw=1)
+        r = RESPONSE.split("{to}")
+        response = [rel(r[0]), (loc, EDIT), rel(r[1].split("{now}")[0]), (loc, EDIT), rel(r[1].split("{now}")[1]), " ", ("?", READ, "box")]
+        y, places = c.flow(x, y + 0.6, col, response)
+        if i == 1:
+            arrow_y = places[EDIT][0][1]
+    c.arrow((xs[0] + col + 0.15, arrow_y), (xs[1] - 0.15, arrow_y), EDIT)
+    c.note(xs[0] + col + gutter / 2, arrow_y - 0.45, "copy\nactivations", EDIT, ha="center")
 
-    c.arrow((cx, 1.8), (cx, r1[2]), TEXT)
-    c.note(cx - 0.25, 2.2, "read its\nown text?", TEXT, ha="right")
-    c.arrow((8.6, 2.33), (r1[1] + 0.02, 2.95), PROMPT, rad=0.15)
-    c.note(7.5, 3.3, "or track\nthe prompt?", PROMPT, ha="center")
-    c.save("circuits-readouts")
+    y += 0.75
+    size = 16
+    outcomes = [(xs[0], "Source", "C", READ, ""), (xs[1], "Base", "F", READ, ""),
+                (xs[1], "Base, orange patched", "C", EDIT, "if it reads its own text"),
+                (xs[1], "Base, blue patched", "C", PROMPT, "if it tracks the prompt")]
+    lead_w = c.width("Base, orange patched", size)
+    for j, (x, lead, letter, color, tail) in enumerate(outcomes):
+        yy = y + 0.6 * max(j - 1, 0)
+        c.text(x, yy, lead, size, ha="left")
+        chip_x = x + (lead_w if x == xs[1] else c.width(lead, size)) + 0.65
+        c.text(chip_x - 0.42, yy, "→", size, ha="center")
+        c.chip(chip_x, yy, letter, color, width=0.5)
+        c.text(chip_x + 0.4, yy, tail, size - 1, ha="left", color=color, style="italic")
+    c.save("circuits-localization")
 
 
 def counterfactuals():
-    """One-letter edits for R1 and R3, and the answer each hypothesis predicts."""
-    pair3 = SWAPS[2]
-    edited = [SWAPS[0], ("C", "A"), *SWAPS[2:]]
+    """One-letter edits for R1 (\"currently in box ?\" in step 4) and R3 (\"to box ?\"), and the answer each hypothesis predicts."""
+    pair4 = SWAPS[3]
+    edited = [*SWAPS[:2], ("B", "C"), *SWAPS[3:]]
     rows = [
-        ("R1", "clean", [], ("E", track(START, SWAPS)[2])),
-        ("R1", "edit step 2", [("step 2: in box ", None), ("C", EDIT)], ("C", track(START, SWAPS)[2])),
-        ("R1", "edit the prompt", [("swap 2: ", None), ("C", EDIT), (" and A", None)], ("E", track(START, edited)[2])),
-        ("R3", "edit step 2", [("step 2: in box ", None), ("B", EDIT)], (move("B", pair3), track(START, SWAPS)[3])),
+        ("R1", "clean", [], ("F", track(START, SWAPS)[3])),
+        ("R1", "edit step 3", [("step 3: in box ", None), ("C", EDIT)], ("C", track(START, SWAPS)[3])),
+        ("R1", "edit the prompt", [("swap 3: B and ", None), ("C", EDIT)], ("F", track(START, edited)[3])),
+        ("R3", "edit step 3", [("step 3: in box ", None), ("A", EDIT)], (move("A", pair4), track(START, SWAPS)[4])),
     ]
-    assert [r[3] for r in rows] == [("E", "E"), ("C", "E"), ("E", "C"), ("E", "B")]
+    assert [r[3] for r in rows] == [("F", "F"), ("C", "F"), ("F", "C"), ("F", "A")]
     c = Canvas(11.6, 4.6)
     cols = [0.45, 1.35, 4.0, 8.4, 10.3]
     for x, h in zip(cols[1:], ["Input", "Edit", "Reads\nits text", "Tracks\nthe prompt"]):
@@ -159,52 +210,6 @@ def counterfactuals():
         if i == 2:
             c.ax.plot([0.35, 11.3], [c.height - (y + 0.38)] * 2, color="0.88", lw=1)
     c.save("circuits-counterfactuals")
-
-
-def patching():
-    """Copy one activation (one position, one layer) from the relabelled run into the clean run, and read out R1."""
-    c = Canvas(11.6, 5.6)
-    groups = [("swap 2", ["E", "and", "A"], PROMPT), ("step 2", ["box", "E"], TEXT), ("step 3", ["currently", "in", "box"], READ)]
-    layers, cell_h, gap = 4, 0.2, 0.1
-
-    def run(y, label, swap):
-        c.text(0.35, y, label, HEAD)
-        x, centres = 2.1, {}
-        for name, toks, color in groups:
-            gx = x
-            for t, tok in enumerate(toks):
-                shown = swap.get(tok, tok) if len(tok) == 1 else tok
-                w = max(c.width(shown, BODY) + 0.32, 0.6)
-                letter = len(tok) == 1 and tok in "ABCDEF"
-                c.chip(x + w / 2, y, shown, color if letter else "0.6", filled=letter, width=w)
-                for li in range(layers):
-                    top = y - 0.45 - (li + 1) * (cell_h + 0.06)
-                    c.box(x + 0.08, top, x + w - 0.08, top + cell_h, face=tint(color, 0.35) if letter else "0.9", edge="none", radius=0.03)
-                centres[(name, t)] = (x + w / 2, w)
-                x += w + gap
-            c.text((gx + x - gap) / 2, y + 0.5, name, LABEL, ha="center", color=color)
-            x += 0.35
-        readout = c.chip(x + 0.3, y, "?", READ, filled=False, width=0.55, text_color=READ)
-        return centres, readout
-
-    src, _ = run(1.75, "source", {"E": "C"})
-    _, readout = run(4.55, "base", {})
-    sx, w = src[("step 2", 1)]
-
-    def layer_y(y):
-        return y - 0.45 - 2 * (cell_h + 0.06) - cell_h / 2
-
-    for y in (1.75, 4.55):
-        ly = layer_y(y)
-        c.box(sx - w / 2 + 0.04, ly - cell_h / 2 - 0.05, sx + w / 2 - 0.04, ly + cell_h / 2 + 0.05, face="none", edge=EDIT, lw=2.4, radius=0.04)
-    gap_x = sx + w / 2 + 0.17
-    c.ax.plot([sx + w / 2 - 0.04, gap_x, gap_x], [c.height - layer_y(1.75)] * 2 + [c.height - layer_y(4.55)], color=EDIT, lw=2.2,
-              solid_joinstyle="round")
-    c.arrow((gap_x + 0.01, layer_y(4.55)), (sx + w / 2 - 0.04, layer_y(4.55)), EDIT)
-    c.note(gap_x + 0.15, 2.85, "copy one activation", EDIT)
-    c.text((readout[0] + readout[1]) / 2, 5.05, "C or E?", LABEL, ha="center", color=READ)
-    c.text(1.85, layer_y(1.75), "layers", LABEL, ha="right", color=GREY)
-    c.save("circuits-patching")
 
 
 def das():
@@ -269,8 +274,7 @@ def lookup():
 
 
 if __name__ == "__main__":
-    readouts()
+    localization()
     counterfactuals()
-    patching()
     das()
     lookup()
