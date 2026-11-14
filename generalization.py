@@ -16,7 +16,7 @@ RUNS = {
     "swaps-7b-tags-512": "512-token limit",
     "swaps-7b-tags-v2": "768-token limit",
     "swaps-7b-tags-long": "1,280-token limit",
-    "swaps-7b-tags-2and4": "trained on 2 and 4 swaps",
+    "swaps-7b-tags-2and4": "Trained on 2 and 4 swaps",
 }
 COLORS = dict(zip(RUNS, [plt.get_cmap("magma")(x) for x in (0.82, 0.62, 0.42, 0.15)] + ["#2a78d6"]))
 LIMIT = 3072
@@ -42,7 +42,7 @@ def puzzle_se(rs: list[dict]) -> float:
 
 if __name__ == "__main__":
     data = {run: rows(run) for run in RUNS if Path("runs", f"gen-{run}").exists()}
-    fig, axes = plt.subplots(1, 3, figsize=(19, 5.4), layout="constrained", width_ratios=[1, 1, 0.8])
+    fig, axes = plt.subplots(1, 3, figsize=(19, 6), layout="constrained", width_ratios=[1, 1, 0.8])
     for run, by in data.items():
         levels = list(by)
         acc = [sum(r["reward"] for r in by[l]) / len(by[l]) for l in levels]
@@ -50,31 +50,31 @@ if __name__ == "__main__":
         axes[0].errorbar(levels, acc, yerr=se, fmt="o-", color=COLORS[run], linewidth=2, markersize=5, capsize=2, label=RUNS[run])
         axes[1].plot(levels, [sum(r["tokens"] for r in by[l]) / len(by[l]) for l in levels], "o-", color=COLORS[run], linewidth=2,
                      markersize=5, label=RUNS[run])
-    axes[0].axhline(1 / 6, color="gray", linestyle=":", linewidth=1)
-    axes[0].text(32, 1 / 6 + 0.015, "guessing", ha="right", color="gray", fontsize=11)
+    axes[0].axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
     axes[0].set_ylim(0, 1.02)
     axes[0].yaxis.set_major_formatter("{x:.0%}")
     axes[0].set_ylabel("Accuracy")
-    axes[0].set_title("Accuracy (bars: one standard error over puzzles)")
+    axes[0].set_title("Accuracy")
     axes[1].set_ylabel("Completion tokens")
     axes[1].set_ylim(0)
-    axes[1].set_title(f"Length (limit raised to {LIMIT:,} tokens)")
+    axes[1].set_title("Length")
     for ax in axes[:2]:
-        ax.set_xlabel("Swaps (training went up to 16, or 4 for the 2-and-4 run)")
+        ax.set_xlabel("Swaps")
         ax.set_xticks([16, 18, 20, 22, 24, 28, 32])
         ax.grid(axis="y", color="0.9", linewidth=0.8)
 
     # Why wrong answers are wrong, pooled over 17 to 32 swaps.
     ax = axes[2]
-    parts = [("Wrong list", "Wrong list of swaps", "#2a78d6"), ("Tracking error", "Tracking error", "#eb6834"),
-             ("Answer differs", "Answer differs from last stated box", "#1baf7a"), ("Cut off", "Cut off", "#eda100")]
+    # Greens and greys, so no colour here is also a run's colour in the other panels.
+    parts = [("Wrong list", "Wrong list of swaps", "#2f8f6b"), ("Tracking error", "Tracking error", "#9bc53d"),
+             ("Answer differs", "Answer differs from last stated box", "#4d4d4d"), ("Cut off", "Cut off", "#999999")]
     for i, (run, by) in enumerate(data.items()):
         wrong = [r for level, rs in by.items() if level > 16 for r in rs if not r["reward"]]
         counts = defaultdict(int)
         for r in wrong:
             counts[cause(r, LIMIT)] += 1
         floor = 0.0
-        for key, label, color in parts + [("other", "Other", "0.75")]:
+        for key, label, color in parts + [("other", "Other", "0.86")]:
             n = counts[key] if key != "other" else len(wrong) - sum(counts[k] for k, _, _ in parts)
             ax.barh(i, n / len(wrong), left=floor, color=color, edgecolor="white", label=label if i == 0 else None)
             floor += n / len(wrong)
@@ -82,10 +82,10 @@ if __name__ == "__main__":
     ax.invert_yaxis()
     ax.set_xlim(0, 1)
     ax.xaxis.set_major_formatter("{x:.0%}")
-    ax.set_title("Why wrong answers are wrong (17 to 32 swaps)")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2, fontsize=10)
-    axes[0].legend(loc="lower left")
-    fig.suptitle("OLMo 3 7B checkpoints on more swaps than in training")
+    ax.set_title("Errors")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2, fontsize=11)
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside upper center", ncol=6, fontsize=11)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig("figures/generalization.png", dpi=150)
 
