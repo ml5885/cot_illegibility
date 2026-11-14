@@ -42,7 +42,10 @@ def puzzle_se(rs: list[dict]) -> float:
 
 if __name__ == "__main__":
     data = {run: rows(run) for run in RUNS if Path("runs", f"gen-{run}").exists()}
-    fig, axes = plt.subplots(1, 3, figsize=(19, 6), layout="constrained", width_ratios=[1, 1, 0.8])
+    # Two subfigures so each legend sits under the panels it belongs to.
+    fig = plt.figure(figsize=(19, 6.2), layout="constrained")
+    runs_fig, errors_fig = fig.subfigures(1, 2, width_ratios=[2, 0.85])
+    axes = list(runs_fig.subplots(1, 2)) + [errors_fig.subplots()]
     for run, by in data.items():
         levels = list(by)
         acc = [sum(r["reward"] for r in by[l]) / len(by[l]) for l in levels]
@@ -83,9 +86,9 @@ if __name__ == "__main__":
     ax.set_xlim(0, 1)
     ax.xaxis.set_major_formatter("{x:.0%}")
     ax.set_title("Errors")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2, fontsize=11)
+    errors_fig.legend(loc="outside lower center", ncol=2, fontsize=11)
     handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside upper center", ncol=6, fontsize=11)
+    runs_fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside lower center", ncol=3, fontsize=11)
     Path("figures").mkdir(exist_ok=True)
     fig.savefig("figures/generalization.png", dpi=150)
 
