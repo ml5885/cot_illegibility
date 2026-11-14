@@ -16,9 +16,10 @@ PROMPT, TEXT, EDIT, READ, GREY = "#2a78d6", "#1baf7a", "#eb6834", "#7a4fc4", "0.
 # swaps-7b-tags-long, step 200, held-out 4-swap puzzle (answered correctly).
 START = "A"
 SWAPS = [("D", "E"), ("E", "A"), ("E", "B"), ("B", "D")]
-# swaps-7b-tags-long, step 25, training 8-swap puzzle: after writing swap 5 (A, B) the response jumps to swap 8.
-LOOKUP_START = "D"
-LOOKUP_SWAPS = [("B", "F"), ("E", "D"), ("E", "A"), ("E", "C"), ("A", "B"), ("E", "B"), ("A", "B"), ("F", "B")]
+# swaps-7b-tags-v2, step 5, training 8-swap puzzle: after writing swap 5 (E, D) the response jumps to swap 8, which follows
+# the later copy of (E, D) at swap 7. The landing pair is unique in the prompt and starts with a different letter from swap 6.
+LOOKUP_START = "E"
+LOOKUP_SWAPS = [("E", "F"), ("A", "D"), ("D", "F"), ("A", "E"), ("E", "D"), ("B", "A"), ("E", "D"), ("E", "C")]
 
 
 def move(key: str, pair: tuple[str, str]) -> str:
@@ -264,8 +265,8 @@ def das():
     """DAS at the MLP output of one layer at the R3 readout position, with two orthogonal subspaces."""
     c = Canvas(14, 7.6)
     c.text(0.3, 0.35, "Distributed alignment search at an MLP output", fontsize=15, va="top")
-    c.text(0.3, 0.72, "Find a subspace of the MLP's output at the R3 position whose value acts like a high-level variable:\n"
-           "swapping it in from another input changes the output as the causal model predicts.", fontsize=10.5, va="top", color=GREY,
+    c.text(0.3, 0.72, "Find a subspace of the MLP output whose value acts like a high-level variable: swapping it in from another input changes the output as predicted.\n"
+           "The readout sentence is neutral: unlike the model's own wording (\"would move the key\"), it does not say whether the key moves.", fontsize=10.5, va="top", color=GREY,
            linespacing=1.5)
 
     # Causal model.
@@ -283,10 +284,10 @@ def das():
 
     # Network side.
     x0 = 4.6
-    c.text(x0, 1.35, "In the model (one layer l, MLP output h ∈ ℝ⁴⁰⁹⁶, R3 position)", fontsize=12, va="top")
+    c.text(x0, 1.35, "In the model (one layer l, MLP output h ∈ ℝ⁴⁰⁹⁶, at the readout)", fontsize=12, va="top")
     rows = [
-        ("base", "…currently in box E, so swapping boxes E and B would move the key from box E to box", "B", READ, 1.95, 2.33),
-        ("source", "…currently in box D, so swapping boxes C and F would move the key from box D to box", "D", PROMPT, 3.6, 3.22),
+        ("base", "…Swap the contents of boxes E and B. The key was in box E. Now it is in box", "B", READ, 1.95, 2.33),
+        ("source", "…Swap the contents of boxes C and F. The key was in box D. Now it is in box", "D", PROMPT, 3.6, 3.22),
     ]
     for name, text, letter, color, text_y, bar_y in rows:
         c.text(x0, text_y, name, fontsize=11, va="baseline", color=color)
@@ -304,7 +305,7 @@ def das():
 
     # Predictions.
     y = 4.35
-    c.text(x0, y, "What the causal model predicts at R3 after each interchange", fontsize=12, va="top")
+    c.text(x0, y, "What the causal model predicts at the readout after each interchange", fontsize=12, va="top")
     preds = [
         ("Interchange L from a source with L = D", f"T becomes false, the key stays: {move('D', ('E', 'B'))}", TEXT),
         ("Interchange L from a source with L = B", f"T stays true, the key moves the other way: {move('B', ('E', 'B'))}", TEXT),
@@ -316,18 +317,20 @@ def das():
         c.text(x0 + 4.4, y + 0.45 + 0.36 * i, "→  " + out, fontsize=10.5, va="top")
     c.text(0.3, 6.45, "R is a learned orthogonal rotation; the L and T coordinates are disjoint blocks of it, so the two subspaces are orthogonal "
            "by construction. Train R on interchange pairs\nfor L and for T, then report interchange accuracy on held-out pairs: "
-           "the share where the patched model's top box is the predicted one.", fontsize=10.5, va="top", color=GREY, linespacing=1.5)
+           "the share where the patched model's top box is the predicted one.\nFirst check that each checkpoint answers the neutral sentence correctly.",
+           fontsize=10.5, va="top", color=GREY, linespacing=1.5)
     c.save("circuits-das")
 
 
 def lookup():
     """The real skip, and the counterfactual that measures how much a later copy of the last pair pulls the lookup."""
     after = track(LOOKUP_START, LOOKUP_SWAPS)
-    assert after[-1] == "E"
+    assert after[-1] == "D"
     c = Canvas(14, 6.6)
     c.text(0.3, 0.35, "How the next swap is found", fontsize=15, va="top")
-    c.text(0.3, 0.72, "A real error: OLMo 3 7B, 1,280-token run, step 25, training puzzle with 8 swaps. The response wrote swaps 1–5, "
-           f"then swap 8\n(writing its pair in reverse order). It answered F; the key ends in {after[-1]}.", fontsize=10.5, va="top", color=GREY, linespacing=1.5)
+    c.text(0.3, 0.72, "A real error: OLMo 3 7B, 768-token run, step 5 (early in training), training puzzle with 8 swaps. The response wrote swaps 1–5, "
+           f"then swap 8.\nIt answered E; the key ends in {after[-1]}. (It also misplaces the key at swap 2.) Response steps are prose; only their pairs are shown.",
+           fontsize=10.5, va="top", color=GREY, linespacing=1.5)
     x0, w = 1.6, 1.38
     c.text(0.3, 1.75, "Prompt", fontsize=12, va="center", color=PROMPT)
     xs = []
@@ -348,7 +351,7 @@ def lookup():
         last = j == len(written) - 1
         c.ax.add_patch(FancyBboxPatch((x, c.height - 3.25), w - 0.18, 0.42, boxstyle="round,pad=0.02",
                                       facecolor=EDIT if last else TEXT, alpha=0.22, edgecolor=EDIT if last else TEXT, linewidth=1))
-        c.text(x + (w - 0.18) / 2, 3.04, f"{j + 1}. {b} and {a}" if last else f"{j + 1}. {a} and {b}", fontsize=11, ha="center", va="center")
+        c.text(x + (w - 0.18) / 2, 3.04, f"{a} and {b}", fontsize=11, ha="center", va="center")
     c.text((xs[5] + xs[6]) / 2, 3.04, "swaps 6 and 7 skipped", fontsize=10, ha="center", va="center", color=GREY, style="italic")
     top, bottom = 2.82, 1.98
     c.arrow((xs[4] - 0.1, top), (xs[5] - 0.3, bottom), TEXT, rad=-0.2, lw=1.5)
@@ -357,14 +360,14 @@ def lookup():
     c.text(xs[5] + 0.45, 2.52, "1", fontsize=11, color=EDIT, ha="center", va="center", fontweight="bold")
     c.arrow((xs[7], bottom), (xs[7], top), EDIT, lw=1.8)
     c.text(xs[7] + 0.15, 2.4, "2", fontsize=11, color=EDIT, ha="left", va="center", fontweight="bold")
-    c.line(x0, 3.62, [("correct", TEXT), ": the swap after swap 5 is swap 6.   ", ("1", EDIT), " match the last pair written (A, B) to its later copy, "
+    c.line(x0, 3.62, [("correct", TEXT), ": the swap after swap 5 is swap 6.   ", ("1", EDIT), " match the last pair written (E, D) to its later copy, "
                       "swap 7.   ", ("2", EDIT), " copy the swap after that copy, swap 8."], size=10.5)
 
-    c.text(0.3, 4.0, "Counterfactual on a late checkpoint (the prefix written in its own template, read out at the first letter of step 6)",
+    c.text(0.3, 4.0, "Counterfactual on a late checkpoint (prefix in its own wording, read out at the first letter of the step after swap 5)",
            fontsize=12, va="top")
     rows = [
-        ("With the repeat (as above)", "swap 7 = A ↔ B", "E", "F"),
-        ("Without it", "swap 7 = A ↔ D  (one token changed)", "E", "no pull toward F"),
+        ("With the repeat (as above)", "swap 7 = E ↔ D", "B", "E"),
+        ("Without it", "swap 7 = E ↔ B  (one token changed)", "B", "no pull toward E"),
     ]
     c.text(1.0, 4.55, "Input", fontsize=10.5, color="0.2", va="top")
     c.text(4.5, 4.55, "Change", fontsize=10.5, color="0.2", va="top")
@@ -376,7 +379,7 @@ def lookup():
         c.text(4.5, y, change, fontsize=10.5, va="top")
         c.text(9.1, y, correct, fontsize=11, va="top", ha="center")
         c.text(11.6, y, pull, fontsize=11, va="top", ha="center", color=EDIT)
-    c.text(0.3, 5.85, "Measure logit(F) − logit(E) at the readout with and without the repeat, over many puzzles: late checkpoints rarely make the error, "
+    c.text(0.3, 5.85, "Measure logit(E) − logit(B) at the readout with and without the repeat, over many puzzles: late checkpoints rarely make the error, "
            "but a\npositive shift shows the pull is still there. Patching then asks whether the shift is carried by the last written pair "
            "(the query) or the step number.", fontsize=10.5, va="top", color=GREY, linespacing=1.5)
     c.save("circuits-lookup")
