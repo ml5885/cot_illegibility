@@ -12,6 +12,7 @@ body { font: 13px/1.6 'SF Mono', SFMono-Regular, Menlo, monospace; background: #
 
 nav { padding: 10px 48px; border-bottom: 1px solid #eee; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; position: sticky; top: 0; background: #fff; z-index: 10; }
 nav .stats { color: #666; flex-basis: 100%; margin-bottom: 2px; }
+nav .row { flex-basis: 100%; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }
 nav select, nav input { font: inherit; padding: 3px 6px; border: 1px solid #ccc; background: #fff; }
 #frun { width: 22ch; text-overflow: ellipsis; }
 nav input[type="search"] { width: 200px; }
@@ -172,6 +173,7 @@ mark.hit { background: #ffe066; color: inherit; }
 <div id="app">
   <nav>
     <div class="stats" id="stats"></div>
+    <div class="row">
     <label>Run: <select id="frun"></select></label>
     <label>Step: <select id="ffile"></select></label>
     <button id="prevfile" title="Previous file ( [ )">[</button>
@@ -190,6 +192,8 @@ mark.hit { background: #ffe066; color: inherit; }
       <option value="nonascii">Most non-ASCII first</option>
     </select></label>
     <input type="search" id="search" placeholder="Search completions...">
+    </div>
+    <div class="row">
     <label><input type="checkbox" id="fws"> Show whitespace</label>
     <label title="Show the prompt and completion as one unsplit text, exactly as the model saw and wrote it ( r )"><input type="checkbox" id="fraw"> Raw</label>
     <label title="Plot accuracy and reasoning length across steps; click a point to open its completions ( p )"><input type="checkbox" id="fcurves"> Curves</label>
@@ -199,6 +203,7 @@ mark.hit { background: #ffe066; color: inherit; }
       <button id="prev" title="Previous prompt ( &larr; )">&larr;</button>
       <span id="pageinfo"></span>
       <button id="next" title="Next prompt ( &rarr; )">&rarr;</button>
+    </div>
     </div>
   </nav>
   <div class="container" id="content"></div>
