@@ -155,11 +155,11 @@ def marked(text: str) -> list:
 
 
 def localization():
-    """One patch, shown on the full runs: copy the activation at step 3's last statement of the key's box from the source
-    run (F and C swapped everywhere) into the base run, and read out the box in step 4."""
+    """Patching on the full runs: copy the activations at step 3's statements of the key's box from the source run (F and C
+    swapped everywhere) into the base run, and read the box step 4 writes next."""
     after = track(START, SWAPS)
     assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(17.6, 13.6)
+    c = Canvas(17.6, 14.2)
     col, gutter, top = 7.9, 1.2, 0.45
     xs = {"source": 0.3, "base": 0.3 + col + gutter}
 
@@ -167,8 +167,10 @@ def localization():
         rel = (lambda t: relabel(t, "F", "C")) if source else (lambda t: t)
         loc = "C" if source else "F"
         prompt = marked(rel(QUESTION.format(s3a="B", s3b="F")))
-        before, after_now = RESPONSE.split("{now}")
-        response = marked(rel(before.format(to="F"))) + [(loc, EDIT)] + marked(rel(after_now)) + [" ", ("?", READ, "box")]
+        before, rest = RESPONSE.split("{to}")
+        middle, after_now = rest.split("{now}")
+        response = (marked(rel(before)) + [(loc, EDIT)] + marked(rel(middle)) + [(loc, EDIT)] + marked(rel(after_now))
+                    + [" ", ("?", READ, "box")])
         return prompt, response
 
     titles = {"source": ("Source run", "F and C swapped everywhere"), "base": ("Base run", "the real response")}
@@ -178,54 +180,61 @@ def localization():
         c.text(x, top, titles[name][0], HEAD)
         c.text(x + c.width(titles[name][0], HEAD) + 0.15, top + 0.02, titles[name][1], LABEL, color=GREY, style="italic")
         prompt, response = parts(name == "source")
-        loc = "C" if name == "source" else "F"
         y, _, b1 = c.flow(x, top + 0.7, col, prompt, size=17, line=0.4, breaks=breaks.get("prompt"))
         c.ax.plot([x, x + col], [c.height - (y + 0.32)] * 2, color="0.8", lw=1)
-        token = 1 + sum(len(re.findall(r"[ ]*\S+|[ ]+", t if isinstance(t, str) else t[0])) for t in response[:response.index((loc, EDIT))])
-        y, spans, b2 = c.flow(x, y + 0.68, col, response, size=17, line=0.4, para=1.45, breaks=breaks.get("response"), force={token})
+        y, spans, b2 = c.flow(x, y + 0.68, col, response, size=17, line=0.4, para=1.45, breaks=breaks.get("response"))
         breaks.setdefault("prompt", b1)
         breaks.setdefault("response", b2)
-        tokens[name], readouts[name] = spans[0], spans[1]
+        tokens[name], readouts[name] = spans[:2], spans[2]
 
-    # A straight arrow from the source token to the same token in the base run, drawn under the text.
-    (s0, s1, sy), (b0, b1, by) = tokens["source"], tokens["base"]
-    c.ax.annotate("", xy=(b0 - 0.06, c.height - by), xytext=(s1 + 0.12, c.height - sy),
-                  arrowprops=dict(arrowstyle="-|>", color=EDIT, lw=2.4, shrinkA=0, shrinkB=0, mutation_scale=20), zorder=4)
-    c.text(xs["base"] - gutter / 2, sy - 0.3, "patch", HEAD, ha="center", color=EDIT, style="italic")
+    # Thin straight arrows from each patched token in the source run to the same token in the base run, under the text.
+    for k, ((s0, s1, sy), (b0, b1, by)) in enumerate(zip(tokens["source"], tokens["base"])):
+        c.ax.annotate("", xy=((b0 + b1) / 2, c.height - by + (0.13 if k == 0 else -0.13)),
+                      xytext=((s0 + s1) / 2, c.height - sy + (0.13 if k == 0 else -0.13)),
+                      arrowprops=dict(arrowstyle="-|>", color=EDIT, lw=1.2, shrinkA=0, shrinkB=0, mutation_scale=12,
+                                      connectionstyle=f"arc3,rad={-0.06 if k == 0 else 0.06}"), zorder=4)
+    first_y = tokens["source"][0][2]
+    c.text(xs["base"] - gutter / 2, first_y - 0.62, "patch", HEAD, ha="center", color=EDIT, style="italic")
 
     for name, letter in (("source", "C"), ("base", "F")):
         r0, r1, ry = readouts[name]
         c.text(r1 + 0.15, ry, f"← predicted next token: {letter}", BODY, ha="left", color=READ)
 
-    y = readouts["base"][2] + 0.85
-    x = xs["base"]
-    c.text(x, y, "Base run after the patch, predicted next token:", BODY)
-    for j, (letter, color, why) in enumerate([("C", EDIT, "if step 4 reads the box only from step 3's text"),
-                                              ("C/F", READ, "in between if it uses the text and other routes"),
-                                              ("F", GREY, "if it gets the box another way, e.g. from the prompt")]):
-        yy = y + 0.55 + 0.52 * j
-        c.chip(x + 0.33, yy, letter, color, width=0.6 if len(letter) > 1 else 0.45, height=0.42)
-        c.text(x + 0.72, yy, why, BODY, color=color if color != GREY else "0.3")
-    c.text(xs["source"], y, "Highlighted: the letters that differ between the runs.", BODY, color=GREY)
+    # Hypotheses and the next token each predicts for the patched base run.
+    y = readouts["base"][2] + 0.95
+    x0, x1 = xs["source"], xs["base"] + 0.4
+    c.text(x0, y, "Hypothesis", BODY, color="0.25")
+    c.text(x1, y, "Base run after the patch predicts", BODY, color="0.25")
+    c.ax.plot([x0, xs["base"] + col], [c.height - (y + 0.28)] * 2, color="0.7", lw=1)
+    rows = [("1. Step 4 copies the box from what step 3 wrote", "C", EDIT, ""),
+            ("2. Step 4 tracks the key from the prompt; the text only reports it", "F", GREY, ""),
+            ("3. Both routes contribute", "C/F", READ, "partway toward C")]
+    for j, (hypothesis, letter, color, note) in enumerate(rows):
+        yy = y + 0.75 + 0.6 * j
+        c.text(x0, yy, hypothesis, BODY)
+        c.chip(x1 + 0.35, yy, letter, color, width=0.62 if len(letter) > 1 else 0.48, height=0.44)
+        if note:
+            c.text(x1 + 0.8, yy, note, BODY, color=color)
+    c.text(x0, y + 0.75 + 0.6 * len(rows) + 0.15, "Highlighted: the letters that differ between the runs.", LABEL + 1, color=GREY)
     c.save("circuits-localization")
 
 
 def counterfactuals():
-    """One-letter edits for R1 (\"currently in box ?\" in step 4) and R3 (\"to box ?\"), and the answer each hypothesis predicts."""
+    """One-letter edits, read at step 4's \"currently in box ?\" and \"to box ?\", and the answer each hypothesis predicts."""
     pair4 = SWAPS[3]
     edited = [*SWAPS[:2], ("B", "C"), *SWAPS[3:]]
     rows = [
-        ("R1", "clean", [], ("F", track(START, SWAPS)[3])),
-        ("R1", "edit step 3", [("step 3: in box ", None), ("C", EDIT)], ("C", track(START, SWAPS)[3])),
-        ("R1", "edit the prompt", [("swap 3: B and ", None), ("C", EDIT)], ("F", track(START, edited)[3])),
-        ("R3", "edit step 3", [("step 3: in box ", None), ("A", EDIT)], (move("A", pair4), track(START, SWAPS)[4])),
+        ("currently in box ▢", "clean", [], ("F", track(START, SWAPS)[3])),
+        ("currently in box ▢", "edit step 3", [("step 3: in box ", None), ("C", EDIT)], ("C", track(START, SWAPS)[3])),
+        ("currently in box ▢", "edit the prompt", [("swap 3: B and ", None), ("C", EDIT)], ("F", track(START, edited)[3])),
+        ("…to box ▢", "edit step 3", [("step 3: in box ", None), ("A", EDIT)], (move("A", pair4), track(START, SWAPS)[4])),
     ]
     assert [r[3] for r in rows] == [("F", "F"), ("C", "F"), ("F", "C"), ("F", "A")]
-    c = Canvas(11.6, 4.6)
-    cols = [0.45, 1.35, 4.0, 8.4, 10.3]
-    for x, h in zip(cols[1:], ["Input", "Edit", "Reads\nits text", "Tracks\nthe prompt"]):
+    c = Canvas(13.3, 4.6)
+    cols = [0.45, 3.45, 5.75, 9.95, 11.85]
+    for x, h in zip(cols, ["Step 4 writes", "Input", "Edit", "Reads\nits text", "Tracks\nthe prompt"]):
         c.text(x, 0.6, h, HEAD, ha="left" if x < 8 else "center", linespacing=1.15)
-    c.ax.plot([0.35, 11.3], [c.height - 1.15] * 2, color="0.7", lw=1)
+    c.ax.plot([0.35, 12.95], [c.height - 1.15] * 2, color="0.7", lw=1)
     for i, (readout, name, edit, (text_pred, prompt_pred)) in enumerate(rows):
         y = 1.7 + 0.75 * i
         c.text(cols[0], y, readout, color=READ)
@@ -244,7 +253,7 @@ def counterfactuals():
         for col, pred in [(cols[3], text_pred), (cols[4], prompt_pred)]:
             c.text(col, y, pred, 21, ha="center", color=EDIT if differ else "0.1", fontweight="bold" if differ else "normal")
         if i == 2:
-            c.ax.plot([0.35, 11.3], [c.height - (y + 0.38)] * 2, color="0.88", lw=1)
+            c.ax.plot([0.35, 12.95], [c.height - (y + 0.38)] * 2, color="0.88", lw=1)
     c.save("circuits-counterfactuals")
 
 
