@@ -156,7 +156,7 @@ def localization():
     run (F and C swapped everywhere) into the base run, and read out the box in step 4."""
     after = track(START, SWAPS)
     assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(14.6, 9.35)
+    c = Canvas(14.6, 9.85)
     col, gutter, top = 6.4, 1.2, 0.45
     xs = {"source": 0.3, "base": 0.3 + col + gutter}
 
@@ -197,11 +197,12 @@ def localization():
     y = readouts["base"][2] + 1.0
     x = xs["base"]
     c.text(x, y, "Base run after the patch, predicted next token:", LABEL + 1)
-    for j, (letter, color, why) in enumerate([("C", EDIT, "if step 4 reads the box from step 3's text"),
-                                              ("F", GREY, "if it gets the box some other way, e.g. from the prompt")]):
+    for j, (letter, color, why) in enumerate([("C", EDIT, "if step 4 reads the box only from step 3's text"),
+                                              ("C/F", READ, "in between if it uses the text and other routes"),
+                                              ("F", GREY, "if it gets the box another way, e.g. from the prompt")]):
         yy = y + 0.5 + 0.48 * j
-        c.chip(x + 0.3, yy, letter, color, width=0.45, height=0.42)
-        c.text(x + 0.65, yy, why, LABEL + 1, color=color if color != GREY else "0.3")
+        c.chip(x + 0.33, yy, letter, color, width=0.6 if len(letter) > 1 else 0.45, height=0.42)
+        c.text(x + 0.72, yy, why, LABEL + 1, color=color if color != GREY else "0.3")
     c.text(xs["source"], y, "Highlighted: the letters that differ between the runs.", LABEL, color=GREY)
     c.save("circuits-localization")
 
