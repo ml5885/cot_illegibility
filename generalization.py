@@ -42,7 +42,7 @@ def puzzle_se(rs: list[dict]) -> float:
 
 if __name__ == "__main__":
     data = {run: rows(run) for run in RUNS if Path("runs", f"gen-{run}").exists()}
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5), layout="constrained")
+    fig, axes = plt.subplots(1, 3, figsize=(19, 5.4), layout="constrained", width_ratios=[1, 1, 0.8])
     for run, by in data.items():
         levels = list(by)
         acc = [sum(r["reward"] for r in by[l]) / len(by[l]) for l in levels]
@@ -59,11 +59,31 @@ if __name__ == "__main__":
     axes[1].set_ylabel("Completion tokens")
     axes[1].set_ylim(0)
     axes[1].set_title(f"Length (limit raised to {LIMIT:,} tokens)")
-    for ax in axes:
-        ax.axvspan(15.5, 16.5, color="0.93", zorder=0)
-        ax.set_xlabel("Swaps (16 is the longest seen in training)")
+    for ax in axes[:2]:
+        ax.set_xlabel("Swaps (training went up to 16, or 4 for the 2-and-4 run)")
         ax.set_xticks([16, 18, 20, 22, 24, 28, 32])
         ax.grid(axis="y", color="0.9", linewidth=0.8)
+
+    # Why wrong answers are wrong, pooled over 17 to 32 swaps.
+    ax = axes[2]
+    parts = [("Wrong list", "Wrong list of swaps", "#2a78d6"), ("Tracking error", "Tracking error", "#eb6834"),
+             ("Answer differs", "Answer differs from last stated box", "#1baf7a"), ("Cut off", "Cut off", "#eda100")]
+    for i, (run, by) in enumerate(data.items()):
+        wrong = [r for level, rs in by.items() if level > 16 for r in rs if not r["reward"]]
+        counts = defaultdict(int)
+        for r in wrong:
+            counts[cause(r, LIMIT)] += 1
+        floor = 0.0
+        for key, label, color in parts + [("other", "Other", "0.75")]:
+            n = counts[key] if key != "other" else len(wrong) - sum(counts[k] for k, _, _ in parts)
+            ax.barh(i, n / len(wrong), left=floor, color=color, edgecolor="white", label=label if i == 0 else None)
+            floor += n / len(wrong)
+    ax.set_yticks(range(len(data)), [RUNS[run] for run in data])
+    ax.invert_yaxis()
+    ax.set_xlim(0, 1)
+    ax.xaxis.set_major_formatter("{x:.0%}")
+    ax.set_title("Why wrong answers are wrong (17 to 32 swaps)")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=2, fontsize=10)
     axes[0].legend(loc="lower left")
     fig.suptitle("OLMo 3 7B checkpoints on more swaps than in training")
     Path("figures").mkdir(exist_ok=True)
