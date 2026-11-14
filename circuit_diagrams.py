@@ -192,7 +192,7 @@ def localization():
         c.ax.annotate("", xy=((b0 + b1) / 2, c.height - by + (0.13 if k == 0 else -0.13)),
                       xytext=((s0 + s1) / 2, c.height - sy + (0.13 if k == 0 else -0.13)),
                       arrowprops=dict(arrowstyle="-|>", color=EDIT, lw=1.2, shrinkA=0, shrinkB=0, mutation_scale=12,
-                                      connectionstyle=f"arc3,rad={-0.06 if k == 0 else 0.06}"), zorder=4)
+                                      connectionstyle=f"arc3,rad={-0.06 if k == 0 else 0.06}"), zorder=6)
     first_y = tokens["source"][0][2]
     c.text(xs["base"] - gutter / 2, first_y - 0.62, "patch", HEAD, ha="center", color=EDIT, style="italic")
 
