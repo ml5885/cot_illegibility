@@ -196,10 +196,10 @@ def localization():
 
     for name, letter in (("source", "C"), ("base", "F")):
         r0, r1, ry = readouts[name]
-        c.text(r1 + 0.15, ry, f"← predicted next token: {letter}", BODY, ha="left", color=READ)
+        c.text(r1 + 0.15, ry, f"← model's next token: {letter}", BODY, ha="left", color=READ)
     r0, r1, ry = readouts["base"]
-    c.text(r1 + 0.15, ry + 0.45, "← predicted next token after patching: C", BODY, ha="left", color=EDIT)
-    c.text(r1 + 0.15 + c.width("← ", BODY), ry + 0.85, "(if the reasoning is faithful)", BODY, ha="left", color=EDIT)
+    c.text(r1 + 0.15, ry + 0.45, "← model's next token after patching: C", BODY, ha="left", color=EDIT)
+    c.text(r1 + 0.15 + c.width("← ", BODY), ry + 0.85, "(expected if the reasoning is faithful)", BODY, ha="left", color=EDIT)
 
     c.text(xs["source"], readouts["base"][2] + 1.45, "Highlighted: the letters that differ between the runs.", LABEL + 1, color=GREY)
     c.save("circuits-localization")
