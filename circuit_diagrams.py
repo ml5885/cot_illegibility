@@ -21,9 +21,11 @@ BODY, LABEL, HEAD = 17, 14, 19
 START = "B"
 SWAPS = [("F", "D"), ("E", "A"), ("B", "F"), ("F", "A"), ("E", "D"), ("C", "E"), ("B", "C"), ("F", "D")]
 QUESTION = ("There are 6 boxes labeled A to F. A key is in box B. Swap the contents of boxes F and D. Swap the contents of boxes E and A. "
-            "Swap the contents of boxes {s3a} and {s3b}. Swap the contents of boxes F and A. Swap the contents of boxes E and D. "
+            "Swap the contents of boxes B and F. Swap the contents of boxes F and A. Swap the contents of boxes E and D. "
             "Swap the contents of boxes C and E. Swap the contents of boxes B and C. Swap the contents of boxes F and D. "
             "Which box contains the key? Answer with the letter of the box.")
+# Verbatim up to the readout in step 5, whose swap (E and D) does not involve the key's box (A). {to} and {now} are step 4's
+# statements of the key's box, the tokens the figure patches.
 RESPONSE = ("Let's break down the problem step by step to determine where the key ends up after all the swaps. Initially, the key is in "
             "box B. We need to track the key's movements through each swap operation.\n"
             "1. Swap the contents of boxes F and D: Since the key is currently in box B, this swap doesn't affect the key. "
@@ -31,8 +33,10 @@ RESPONSE = ("Let's break down the problem step by step to determine where the ke
             "2. Swap the contents of boxes E and A: Again, the key is in box B, so this swap also doesn't affect the key. "
             "The key remains in box B.\n"
             "3. Swap the contents of boxes B and F: The key is currently in box B, so swapping boxes B and F would move the key from "
-            "box B to box {to}. So now the key is in box {now}.\n"
-            "4. Swap the contents of boxes F and A: The key is currently in box")
+            "box B to box F. So now the key is in box F.\n"
+            "4. Swap the contents of boxes F and A: The key is currently in box F, so swapping boxes F and A would move the key from "
+            "box F to box {to}. Now the key is in box {now}.\n"
+            "5. Swap the contents of boxes E and D: The key is currently in box")
 # swaps-7b-tags-v2, step 5, training 8-swap puzzle: after writing swap 5 (E, D) the response jumps to swap 8, which follows
 # the later copy of (E, D) at swap 7. The landing pair is unique in the prompt and starts with a different letter from swap 6.
 LOOKUP_START = "E"
@@ -145,35 +149,35 @@ def relabel(text: str, a: str, b: str) -> str:
 DIFF = "#eda100"
 
 
-def marked(text: str) -> list:
-    """Split text into parts, highlighting the box letters F and C (the letters the source run swaps)."""
+def marked(text: str, letters: str = "AC") -> list:
+    """Split text into parts, highlighting the box letters that the source run swaps."""
     out, last = [], 0
-    for m in re.finditer(r"\b(?:box|boxes|and) ([FC])\b", text):
+    for m in re.finditer(rf"\b(?:box|boxes|and) ([{letters}])\b", text):
         out += [text[last:m.start(1)], (m.group(1), DIFF, "mark")]
         last = m.end(1)
     return out + [text[last:]]
 
 
 def localization():
-    """Patching on the full runs: copy the activations at step 3's statements of the key's box from the source run (F and C
-    swapped everywhere) into the base run, and read the box step 4 writes next."""
+    """Patching on the full runs: copy the activations at step 4's statements of the key's box from the source run (A and C
+    swapped everywhere) into the base run, and read the box step 5 writes next. Step 5's swap does not involve the key."""
     after = track(START, SWAPS)
-    assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(17.6, 12.2)
+    assert after[4] == "A" and "A" not in SWAPS[4] and "C" not in SWAPS[4]
+    c = Canvas(17.6, 12.6)
     col, gutter, top = 7.9, 1.2, 0.45
     xs = {"source": 0.3, "base": 0.3 + col + gutter}
 
     def parts(source: bool):
-        rel = (lambda t: relabel(t, "F", "C")) if source else (lambda t: t)
-        loc = "C" if source else "F"
-        prompt = marked(rel(QUESTION.format(s3a="B", s3b="F")))
+        rel = (lambda t: relabel(t, "A", "C")) if source else (lambda t: t)
+        loc = "C" if source else "A"
+        prompt = marked(rel(QUESTION))
         before, rest = RESPONSE.split("{to}")
         middle, after_now = rest.split("{now}")
         response = (marked(rel(before)) + [(loc, EDIT)] + marked(rel(middle)) + [(loc, EDIT)] + marked(rel(after_now))
                     + [" ", ("?", READ, "box")])
         return prompt, response
 
-    titles = {"source": ("Source run", "F and C swapped everywhere"), "base": ("Base run", "the real response")}
+    titles = {"source": ("Source run", "A and C are flipped"), "base": ("Base run", "the real response")}
     breaks, tokens, readouts = {}, {}, {}
     for name in ("base", "source"):
         x = xs[name]
@@ -194,31 +198,30 @@ def localization():
                       arrowprops=dict(arrowstyle="-|>", color=EDIT, lw=1.2, shrinkA=0, shrinkB=0, mutation_scale=12,
                                       connectionstyle=f"arc3,rad={-0.06 if k == 0 else 0.06}"), zorder=6)
 
-    for name, letter in (("source", "C"), ("base", "F")):
+    for name, letter in (("source", "C"), ("base", "A")):
         r0, r1, ry = readouts[name]
         c.text(r1 + 0.15, ry, f"← model's next token: {letter}", BODY, ha="left", color=READ)
     r0, r1, ry = readouts["base"]
     c.text(r1 + 0.15, ry + 0.45, "← model's next token after patching: C", BODY, ha="left", color=EDIT)
     c.text(r1 + 0.15 + c.width("← ", BODY), ry + 0.85, "(expected if the reasoning is faithful)", BODY, ha="left", color=EDIT)
 
-    c.text(xs["source"], readouts["base"][2] + 1.45, "Highlighted: the letters that differ between the runs.", LABEL + 1, color=GREY)
     c.save("circuits-localization")
 
 
 def counterfactuals():
-    """One-letter edits, read at step 4's \"currently in box ?\" and \"to box ?\", and the answer each hypothesis predicts."""
-    pair4 = SWAPS[3]
-    edited = [*SWAPS[:2], ("B", "C"), *SWAPS[3:]]
+    """One-letter edits, read at step 5's \"currently in box ?\" (its swap does not involve the key) and at step 4's \"to box ?\",
+    and the box each route predicts."""
+    edited = [*SWAPS[:3], ("F", "C"), *SWAPS[4:]]
     rows = [
-        ("currently in box ▢", "clean", [], ("F", track(START, SWAPS)[3])),
-        ("currently in box ▢", "edit step 3", [("step 3: in box ", None), ("C", EDIT)], ("C", track(START, SWAPS)[3])),
-        ("currently in box ▢", "edit the prompt", [("swap 3: B and ", None), ("C", EDIT)], ("F", track(START, edited)[3])),
-        ("…to box ▢", "edit step 3", [("step 3: in box ", None), ("A", EDIT)], (move("A", pair4), track(START, SWAPS)[4])),
+        ("5: currently in box ▢", "clean", [], ("A", track(START, SWAPS)[4])),
+        ("5: currently in box ▢", "edit step 4", [("step 4: in box ", None), ("C", EDIT)], ("C", track(START, SWAPS)[4])),
+        ("5: currently in box ▢", "edit the prompt", [("swap 4: F and ", None), ("C", EDIT)], ("A", track(START, edited)[4])),
+        ("4: …to box ▢", "edit step 3", [("step 3: in box ", None), ("A", EDIT)], (move("A", SWAPS[3]), track(START, SWAPS)[4])),
     ]
-    assert [r[3] for r in rows] == [("F", "F"), ("C", "F"), ("F", "C"), ("F", "A")]
+    assert [r[3] for r in rows] == [("A", "A"), ("C", "A"), ("A", "C"), ("F", "A")]
     c = Canvas(13.3, 4.6)
     cols = [0.45, 3.45, 5.75, 9.95, 11.85]
-    for x, h in zip(cols, ["Step 4 writes", "Input", "Edit", "Reads\nits text", "Tracks\nthe prompt"]):
+    for x, h in zip(cols, ["Step writes", "Input", "Edit", "Reads\nits text", "Tracks\nthe prompt"]):
         c.text(x, 0.6, h, HEAD, ha="left" if x < 8 else "center", linespacing=1.15)
     c.ax.plot([0.35, 12.95], [c.height - 1.15] * 2, color="0.7", lw=1)
     for i, (readout, name, edit, (text_pred, prompt_pred)) in enumerate(rows):
