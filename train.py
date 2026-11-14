@@ -61,8 +61,9 @@ class LimitSchedule(TrainerCallback):
     """Lowers the token limit by `factor`, down to `floor`, whenever training accuracy at every swap count has been at
     least `target` over the last `patience` steps at the current limit. Changes are appended to `path` as JSON lines."""
 
-    def __init__(self, trainer, floor: int, factor: float, target: float, patience: int, path: Path):
+    def __init__(self, trainer, floor: int, factor: float, target: float, patience: int, path: Path, log: Callable[[dict], None]):
         self.trainer, self.floor, self.factor, self.target, self.patience, self.path = trainer, floor, factor, target, patience, path
+        self.log = log
         self.rewards = defaultdict(lambda: defaultdict(list))  # step -> level -> rewards
         self.since = 0  # first step generated at the current limit
         self.write(0, trainer.max_completion_length)
@@ -78,6 +79,7 @@ class LimitSchedule(TrainerCallback):
 
     def on_step_end(self, args, state, control, **kwargs):
         step, limit = state.global_step, self.trainer.max_completion_length
+        self.log({"token_limit": limit})
         window = range(step - self.patience, step)
         if limit <= self.floor or window.start < self.since:
             return
@@ -205,7 +207,8 @@ def main():
     if args.min_tokens:
         assert not args.resume, "the schedule's state is not saved in checkpoints"
         (out / "limits.jsonl").unlink(missing_ok=True)
-        schedule = LimitSchedule(trainer, args.min_tokens, args.limit_factor, args.limit_target, args.limit_patience, out / "limits.jsonl")
+        schedule = LimitSchedule(trainer, args.min_tokens, args.limit_factor, args.limit_target, args.limit_patience, out / "limits.jsonl",
+                                  lambda stats: wandb.log(stats, commit=False))
         trainer.add_callback(schedule)
     trainer.train(resume_from_checkpoint=args.resume)
     trainer.save_model(str(out / "final"))
