@@ -19,8 +19,8 @@ def logged_reward(
     directory: Path, fmt: Format, state: Callable[[], tuple[int, str]], log: Callable[[dict], None],
     record: Callable[[str, int, list[dict]], None],
 ):
-    """Reward on the final answer only. `state` returns the current (step, split); `log` gets per-level stats;
-    `record` gets the scored rows."""
+    """Reward on the final answer only. `state` returns the current (step, split); `log` gets per-level training stats;
+    `record` gets the scored rows. The returned function's `eval_stats()` gives per-level stats of the latest evaluation."""
 
     seen = {"key": None, "rows": []}
 
@@ -31,11 +31,24 @@ def logged_reward(
         tokens = [len(ids) for ids in completion_ids]
         rows = score_and_save(directory, fmt, split, step, prompts, completions, answer, level, tokens)
         record(split, step, rows)
-        seen["rows"] += rows  # eval arrives in several batches; log the running mean over the whole step
-        log({f"{split}_levels/{name}": value for name, value in by_level(seen["rows"]).items()})
+        seen["rows"] += rows  # eval arrives in several batches; LogEvalLevels logs it once the evaluation is over
+        if split == "train":
+            log({f"train_levels/{name}": value for name, value in by_level(seen["rows"]).items()})
         return [row["reward"] for row in rows]
 
+    correct.eval_stats = lambda: by_level(seen["rows"]) if seen["key"] and seen["key"][1] == "eval" else {}
     return correct
+
+
+class LogEvalLevels(TrainerCallback):
+    """Logs held-out stats per swap count once per evaluation, at the trainer's step."""
+
+    def __init__(self, stats: Callable[[], dict], log: Callable[[dict], None]):
+        self.stats, self.log = stats, log
+
+    def on_evaluate(self, args, state, control, **kwargs):
+        if stats := self.stats():
+            self.log({f"eval_levels/{name}": value for name, value in stats.items()} | {"train/global_step": state.global_step})
 
 
 def fixed_mix(data: Dataset, per_step: int, seed: int) -> Dataset:
@@ -185,15 +198,16 @@ def main():
     if args.mix == "fixed":
         train_data = fixed_mix(train_data, args.prompts_per_step, args.seed)
     schedule = None
+    reward = logged_reward(
+        out / "rollouts",
+        fmt,
+        lambda: (trainer.state.global_step, "train" if trainer.model.training else "eval"),
+        lambda stats: wandb.log(stats, commit=False),
+        lambda split, step, rows: schedule and schedule.record(split, step, rows),
+    )
     trainer = GRPOTrainer(
         model=args.model,
-        reward_funcs=logged_reward(
-            out / "rollouts",
-            fmt,
-            lambda: (trainer.state.global_step, "train" if trainer.model.training else "eval"),
-            lambda stats: wandb.log(stats, commit=False),
-            lambda split, step, rows: schedule and schedule.record(split, step, rows),
-        ),
+        reward_funcs=reward,
         args=grpo_config(args, out),
         train_dataset=train_data,
         eval_dataset=dataset(args.task, "eval", args.seed, args.eval_problems, args.eval_swaps or args.swaps, fmt),
@@ -204,6 +218,7 @@ def main():
     # vLLM's transformers backend patches the backbone class's __call__ in place to consult this
     # flag, which only its own instances set; the trainer's copy must take the plain forward.
     type(trainer.model.get_base_model().base_model).do_not_compile = True
+    trainer.add_callback(LogEvalLevels(reward.eval_stats, wandb.log))
     if args.min_tokens:
         assert not args.resume, "the schedule's state is not saved in checkpoints"
         (out / "limits.jsonl").unlink(missing_ok=True)
