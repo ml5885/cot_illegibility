@@ -1,7 +1,8 @@
 """Answering with no reasoning: base models against simple rules that read the puzzle without tracking the key.
 
 uv run --no-project --with matplotlib --with datasets python zero_shot.py
-Reads runs/baseline-swaps-noreason-*/ (from baseline.py --no-reasoning) and writes figures/zero-shot.png.
+Reads runs/baseline-swaps-noreason-*/ and runs/bare-noreason-*/ (from baseline.py --no-reasoning, with the chat template and
+with the bare prompt) and runs/entity-*/ (from entity.py); writes figures/zero-shot.png and figures/entity.png.
 """
 
 import json
@@ -54,9 +55,9 @@ def rule_accuracy(n: int = 2000) -> dict[str, dict[int, float]]:
     return out
 
 
-def model_results() -> dict[str, dict]:
+def model_results(prefix: str) -> dict[str, dict]:
     results = {}
-    for run in sorted(Path("runs").glob("baseline-swaps-noreason-*")):
+    for run in sorted(Path("runs").glob(f"{prefix}*")):
         if not (run / "letters.jsonl").exists():
             continue
         rows = [json.loads(line) for line in (run / "rollouts" / "baseline_00000.jsonl").open()]
@@ -73,7 +74,7 @@ def model_results() -> dict[str, dict]:
             stats["P(any box letter)"].append(mass)
             stats["P(starting box)"].append(probs.get(START.search(row["question"]).group(1), 0))
             stats["P(a box in the last swap)"].append(sum(probs.get(b, 0) for b in rule["A box in the last swap"]))
-        results[run.name.removeprefix("baseline-swaps-noreason-")] = {
+        results[run.name.removeprefix(prefix)] = {
             level: {"Sampled accuracy": sampled[f"accuracy/level_{level}"]} | {k: sum(v) / len(v) for k, v in stats.items()}
             for level, stats in sorted(per.items())
         }
@@ -87,35 +88,66 @@ def table(rows: dict[str, dict[int, float]], title: str) -> str:
     return "\n".join(lines)
 
 
-def figure(results: dict[str, dict], baselines: dict[str, dict[int, float]]):
-    fig, ax = plt.subplots(figsize=(9, 5.5), layout="constrained")
-    for model, by_lvl in results.items():
-        color = COLORS[model]
-        levels = sorted(by_lvl)
-        ax.plot(levels, [by_lvl[level]["P(correct), among box letters"] for level in levels], "o-", color=color, label=model, linewidth=2)
+def figure(panels: dict[str, dict[str, dict]], baselines: dict[str, dict[int, float]]):
+    fig, axes = plt.subplots(1, len(panels), figsize=(7.5 * len(panels), 5.5), layout="constrained", sharey=True)
     best = {level: max(r[level] for r in baselines.values()) for level in LEVELS}
-    ax.plot(LEVELS, [best[level] for level in LEVELS], color="0.4", linestyle="--", linewidth=1, label="Best simple rule")
-    ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
-    ax.set_xscale("log", base=2)
-    ax.set_xticks(LEVELS, [str(level) for level in LEVELS])
-    ax.set_xlabel("Swaps")
-    ax.set_ylabel("Probability on the correct box\n(among the six box letters)")
-    ax.set_ylim(0, 1)
-    ax.yaxis.set_major_formatter("{x:.0%}")
-    ax.grid(axis="y", color="0.9", linewidth=0.8)
-    ax.legend(loc="upper right", fontsize=10)
-    ax.set_title("No-reasoning performance")
+    for ax, (title, results) in zip(axes, panels.items()):
+        for model, by_lvl in results.items():
+            levels = sorted(by_lvl)
+            ax.plot(levels, [by_lvl[level]["P(correct), among box letters"] for level in levels], "o-", color=COLORS[model], label=model,
+                    linewidth=2)
+        ax.plot(LEVELS, [best[level] for level in LEVELS], color="0.4", linestyle="--", linewidth=1, label="Best simple rule")
+        ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(LEVELS, [str(level) for level in LEVELS])
+        ax.set_xlabel("Swaps")
+        ax.set_ylim(0, 1)
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.grid(axis="y", color="0.9", linewidth=0.8)
+        ax.set_title(title)
+    axes[0].set_ylabel("Probability on the correct box\n(among the six box letters)")
+    axes[-1].legend(loc="upper right", fontsize=10)
+    fig.suptitle("No-reasoning performance")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig("figures/zero-shot.png", dpi=150)
+
+
+def entity_figure():
+    """P(correct box) with one or six objects and 0 to 2 swaps (runs/entity-*)."""
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5), layout="constrained", sharey=True)
+    for run in sorted(Path("runs").glob("entity-*")):
+        model = run.name.removeprefix("entity-")
+        per = defaultdict(list)
+        for line in (run / "letters.jsonl").open():
+            row = json.loads(line)
+            mass = sum(row["probs"].values())
+            per[row["objects"], row["swaps"]].append(row["probs"].get(row["answer"], 0) / mass if mass else 1 / 6)
+        for ax, objects in zip(axes, (1, 6)):
+            swaps = sorted(s for o, s in per if o == objects)
+            ax.plot(swaps, [sum(per[objects, s]) / len(per[objects, s]) for s in swaps], "o-", color=COLORS[model], label=model,
+                    linewidth=2)
+    for ax, title in zip(axes, ("One object (a key)", "Six objects, one per box")):
+        ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
+        ax.set_xticks([0, 1, 2])
+        ax.set_xlabel("Swaps")
+        ax.set_ylim(0, 1)
+        ax.yaxis.set_major_formatter("{x:.0%}")
+        ax.grid(axis="y", color="0.9", linewidth=0.8)
+        ax.set_title(title)
+    axes[0].set_ylabel("Probability on the correct box\n(among the six box letters)")
+    axes[-1].legend(loc="upper right", fontsize=10)
+    fig.suptitle("Entity tracking without reasoning")
+    fig.savefig("figures/entity.png", dpi=150)
 
 
 if __name__ == "__main__":
     random.seed(0)
     baselines = rule_accuracy()
     print("Simple rules (accuracy):\n\n" + table(baselines, "Rule \\| swaps"))
-    results = model_results()
-    for model, by_lvl in results.items():
-        measures = {m: {level: by_lvl[level][m] for level in by_lvl} for m in next(iter(by_lvl.values()))}
-        print(f"\n{model}:\n\n" + table(measures, "Measure \\| swaps"))
-    if results:
-        figure(results, baselines)
+    panels = {"Chat template": model_results("baseline-swaps-noreason-"), "Bare prompt": model_results("bare-noreason-")}
+    for title, results in panels.items():
+        for model, by_lvl in results.items():
+            measures = {m: {level: by_lvl[level][m] for level in by_lvl} for m in next(iter(by_lvl.values()))}
+            print(f"\n{title}, {model}:\n\n" + table(measures, "Measure \\| swaps"))
+    figure(panels, baselines)
+    entity_figure()
