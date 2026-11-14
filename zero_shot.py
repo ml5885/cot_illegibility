@@ -12,11 +12,20 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from plots import PALETTE
+import plots  # noqa: F401  (shared figure style: serif fonts)
 from rollouts import by_level
 from tasks import swap_problems
 
 LEVELS = [1, 2, 4, 8, 16, 32]
+# One hue per family: Llama blue, OLMo pink, Qwen in shades of purple (lighter for smaller, Qwen3.5 darker than Qwen3).
+COLORS = {
+    "Llama-3.1-8B": "#2a78d6",
+    "Olmo-3-1025-7B": "#e0569b",
+    "Qwen3-4B-Base": "#c3a6e8",
+    "Qwen3-8B-Base": "#9a72d6",
+    "Qwen3.5-4B-Base": "#7243b8",
+    "Qwen3.5-9B-Base": "#3f1d7a",
+}
 START = re.compile(r"A key is in box ([A-F])")
 SWAP = re.compile(r"Swap the contents of boxes ([A-F]) and ([A-F])")
 
@@ -80,7 +89,8 @@ def table(rows: dict[str, dict[int, float]], title: str) -> str:
 
 def figure(results: dict[str, dict], baselines: dict[str, dict[int, float]]):
     fig, ax = plt.subplots(figsize=(9, 5.5), layout="constrained")
-    for color, (model, by_lvl) in zip(PALETTE, results.items()):
+    for model, by_lvl in results.items():
+        color = COLORS[model]
         levels = sorted(by_lvl)
         ax.plot(levels, [by_lvl[level]["P(correct), among box letters"] for level in levels], "o-", color=color, label=model, linewidth=2)
     best = {level: max(r[level] for r in baselines.values()) for level in LEVELS}
