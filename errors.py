@@ -18,7 +18,7 @@ from plots import load, tracking
 from traces import list_steps
 
 CAUSES = ["Wrong list", "Tracking error", "No answer", "Cut off", "Answer differs", "Unclear"]
-KINDS = [("left out only", "Swaps left out only"), ("added only", "Steps added only"), ("both", "Both")]
+KINDS = [("left out only", "Left out swaps"), ("added only", "Added extra swaps"), ("both", "Left out and added")]
 EXTRAS = [
     ("after the last swap", "After the last swap"),
     ("a pair from the problem", "Repeats a pair from the problem"),
@@ -47,7 +47,7 @@ def cause(row: dict, limit: int) -> str:
 
 
 def list_detail(rows: list[dict]) -> dict:
-    """Among responses with a wrong list: kinds, how many swaps are left out and where, and what the extra steps are.
+    """Among responses with a wrong list: kinds, how many swaps are left out and where, and what the extra swaps are.
     Over all responses: how often the second of two back-to-back identical swaps is left out."""
     kinds, left_counts, quarters = Counter(), Counter(), Counter()
     merged = repeats = later_copy = skips = chance = 0.0
@@ -140,12 +140,12 @@ def tables(groups: list[dict]) -> str:
     out += cause_rows
     if list_rows:
         out.append("\nResponses with a wrong list of swaps:\n")
-        out.append("| Swaps \\| steps | Responses (share) | Left out only | Added only | Both | Left out 1 / 2 / 3+ | Left-out swaps by quarter of the list | Back-to-back repeats merged (all responses) | Skips of 2+ swaps landing after a later copy (chance) |")
+        out.append("| Swaps \\| steps | Responses (share) | Left out swaps | Added extra swaps | Left out and added | Left out 1 / 2 / 3+ | Left-out swaps by quarter of the list | Back-to-back repeats merged (all responses) | Skips of 2+ swaps landing after a later copy (chance) |")
         out.append("|---|---|---|---|---|---|---|---|---|")
         out += list_rows
     if extra_rows:
-        out.append("\nExtra steps in those responses:\n")
-        out.append("| Swaps \\| steps | Extra steps | " + " | ".join(label for _, label in EXTRAS) + " |")
+        out.append("\nExtra swaps in those responses:\n")
+        out.append("| Swaps \\| steps | Extra swaps | " + " | ".join(label for _, label in EXTRAS) + " |")
         out.append("|---|---|" + "---|" * len(EXTRAS))
         out += extra_rows
     return "\n".join(out)
@@ -164,7 +164,7 @@ def model_label(run: str) -> str:
 
 def figure(run: str, groups: list[dict]):
     """Heatmaps per swap count and training phase (each column sums to 100% within its block): why wrong answers are
-    wrong, what kind of wrong list, what the extra steps are; then how often long skips land right after a later copy
+    wrong, what kind of wrong list, what the extra swaps are; then how often long skips land right after a later copy
     of the last pair written, against chance."""
     from matplotlib.patches import Rectangle
 
@@ -175,7 +175,7 @@ def figure(run: str, groups: list[dict]):
     blocks = [
         ("Wrong answers, by cause", [(c, c) for c in CAUSES], lambda g: g["causes"]),
         ("Responses with a wrong list of swaps, by kind", KINDS, lambda g: g["kinds"]),
-        ("Extra steps in those responses, by kind", EXTRAS, lambda g: g["extra"]),
+        ("Extra swaps in those responses, by kind", EXTRAS, lambda g: g["extra"]),
     ]
     skips = []
     for level, held_out in levels:
