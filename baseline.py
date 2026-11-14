@@ -17,91 +17,97 @@ os.environ["VLLM_USE_FLASHINFER_SAMPLER"] = "0"
 from vllm import LLM, SamplingParams  # noqa: E402
 from vllm.lora.request import LoRARequest  # noqa: E402
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--task", choices=["swaps", "math"], required=True)
-parser.add_argument("--format", choices=FORMATS, default="tags")
-parser.add_argument("--split", choices=["train", "eval"], default="train")
-parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
-parser.add_argument("--swaps", type=int, nargs="+", default=[2, 4, 8, 16, 32, 48])
-parser.add_argument("--problems", type=int, default=600, help="total, split evenly across swap levels")
-parser.add_argument("--k", type=int, default=64)
-parser.add_argument("--max-tokens", type=int, default=512)
-parser.add_argument("--temperature", type=float, default=1.0)
-parser.add_argument("--seed", type=int, default=0)
-parser.add_argument("--adapter", help="LoRA checkpoint directory from train.py")
-parser.add_argument("--no-reasoning", action="store_true", help="prefill the prompt so the model must answer at once")
-parser.add_argument("--name", help="run directory under runs/")
-args = parser.parse_args()
 
-fmt = FORMATS[args.format]
-problems = dataset(args.task, args.split, args.seed, args.problems, args.swaps, fmt)
-prefill = fmt.skip if args.no_reasoning else ""
-out = Path("runs") / (args.name or f"baseline-{args.task}-{args.format}-{args.model.split('/')[-1]}")
-shutil.rmtree(out, ignore_errors=True)
-out.mkdir(parents=True)
-(out / "args.json").write_text(json.dumps(vars(args), indent=2))
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", choices=["swaps", "math"], required=True)
+    parser.add_argument("--format", choices=FORMATS, default="tags")
+    parser.add_argument("--split", choices=["train", "eval"], default="train")
+    parser.add_argument("--model", default="allenai/Olmo-3-1025-7B")
+    parser.add_argument("--swaps", type=int, nargs="+", default=[2, 4, 8, 16, 32, 48])
+    parser.add_argument("--problems", type=int, default=600, help="total, split evenly across swap levels")
+    parser.add_argument("--k", type=int, default=64)
+    parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--adapter", help="LoRA checkpoint directory from train.py")
+    parser.add_argument("--no-reasoning", action="store_true", help="prefill the prompt so the model must answer at once")
+    parser.add_argument("--name", help="run directory under runs/")
+    args = parser.parse_args()
 
-llm = LLM(
-    args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed, max_model_len=4096,
-    enable_lora=bool(args.adapter), max_lora_rank=64,
-)
-lora = LoRARequest("adapter", 1, args.adapter) if args.adapter else None
-sampling = SamplingParams(
-    n=args.k,
-    temperature=args.temperature,
-    max_tokens=args.max_tokens,
-    stop=[fmt.stop],
-    include_stop_str_in_output=True,
-)
-start = time.time()
-outputs = llm.generate([prompt + prefill for prompt in problems["prompt"]], sampling, lora_request=lora)
-elapsed = time.time() - start
+    fmt = FORMATS[args.format]
+    problems = dataset(args.task, args.split, args.seed, args.problems, args.swaps, fmt)
+    prefill = fmt.skip if args.no_reasoning else ""
+    out = Path("runs") / (args.name or f"baseline-{args.task}-{args.format}-{args.model.split('/')[-1]}")
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir(parents=True)
+    (out / "args.json").write_text(json.dumps(vars(args), indent=2))
 
-levels = defaultdict(lambda: defaultdict(float))
-for problem, output in zip(problems, outputs):
-    completions = [prefill + c.text for c in output.outputs]
-    tokens = [len(c.token_ids) for c in output.outputs]
-    rows = score_and_save(
-        out / "rollouts", fmt, "baseline", 0,
-        [problem["prompt"]] * args.k, completions, [problem["answer"]] * args.k, [problem["level"]] * args.k, tokens,
+    llm = LLM(
+        args.model, dtype="bfloat16", gpu_memory_utilization=0.9, seed=args.seed, max_model_len=4096,
+        enable_lora=bool(args.adapter), max_lora_rank=64,
     )
-    rewards = [row["reward"] for row in rows]
-    stats = levels[problem["level"]]
-    stats["problems"] += 1
-    stats["correct"] += sum(rewards)
-    stats["solved"] += any(rewards)
-    stats["parsed"] += sum(fmt.parse_answer(c) is not None for c in completions)
-    stats["tokens"] += sum(tokens)
-
-for level, s in sorted(levels.items()):
-    samples = s["problems"] * args.k
-    print(
-        f"level={level:3d}  pass@1={s['correct'] / samples:.3f}  "
-        f"pass@{args.k}={s['solved'] / s['problems']:.3f}  "
-        f"format={s['parsed'] / samples:.3f}  tok/sample={s['tokens'] / samples:.0f}"
+    lora = LoRARequest("adapter", 1, args.adapter) if args.adapter else None
+    sampling = SamplingParams(
+        n=args.k,
+        temperature=args.temperature,
+        max_tokens=args.max_tokens,
+        stop=[fmt.stop],
+        include_stop_str_in_output=True,
     )
-print(f"tok/s={sum(s['tokens'] for s in levels.values()) / elapsed:.0f}")
+    start = time.time()
+    outputs = llm.generate([prompt + prefill for prompt in problems["prompt"]], sampling, lora_request=lora)
+    elapsed = time.time() - start
 
-if args.no_reasoning and args.task == "swaps":
-    # The probability of each box letter as the first answer token, summed over spellings (e.g. "C" and " C").
-    first = llm.generate(
-        [prompt + prefill for prompt in problems["prompt"]],
-        SamplingParams(max_tokens=1, temperature=0, logprobs=20), lora_request=lora,
-    )
-    with open(out / "letters.jsonl", "w") as f:
-        for problem, output in zip(problems, first):
-            probs = defaultdict(float)
-            for logprob in output.outputs[0].logprobs[0].values():
-                if (letter := logprob.decoded_token.strip()) in set("ABCDEF"):
-                    probs[letter] += math.exp(logprob.logprob)
-            question = problem["prompt"].split("User:")[-1]
-            f.write(json.dumps({"question": question, "answer": problem["answer"], "level": problem["level"], "probs": probs}) + "\n")
-            stats = levels[problem["level"]]
-            stats["p_correct"] += probs[problem["answer"]]
-            stats["argmax"] += max("ABCDEF", key=lambda b: probs[b]) == problem["answer"]
-            stats["letter_mass"] += sum(probs.values())
-    for level, s in sorted(levels.items()):
-        print(
-            f"level={level:3d}  P(correct)={s['p_correct'] / s['problems']:.3f}  "
-            f"argmax={s['argmax'] / s['problems']:.3f}  mass on A-F={s['letter_mass'] / s['problems']:.3f}"
+    levels = defaultdict(lambda: defaultdict(float))
+    for problem, output in zip(problems, outputs):
+        completions = [prefill + c.text for c in output.outputs]
+        tokens = [len(c.token_ids) for c in output.outputs]
+        rows = score_and_save(
+            out / "rollouts", fmt, "baseline", 0,
+            [problem["prompt"]] * args.k, completions, [problem["answer"]] * args.k, [problem["level"]] * args.k, tokens,
         )
+        rewards = [row["reward"] for row in rows]
+        stats = levels[problem["level"]]
+        stats["problems"] += 1
+        stats["correct"] += sum(rewards)
+        stats["solved"] += any(rewards)
+        stats["parsed"] += sum(fmt.parse_answer(c) is not None for c in completions)
+        stats["tokens"] += sum(tokens)
+
+    for level, s in sorted(levels.items()):
+        samples = s["problems"] * args.k
+        print(
+            f"level={level:3d}  pass@1={s['correct'] / samples:.3f}  "
+            f"pass@{args.k}={s['solved'] / s['problems']:.3f}  "
+            f"format={s['parsed'] / samples:.3f}  tok/sample={s['tokens'] / samples:.0f}"
+        )
+    print(f"tok/s={sum(s['tokens'] for s in levels.values()) / elapsed:.0f}")
+
+    if args.no_reasoning and args.task == "swaps":
+        # The probability of each box letter as the first answer token, summed over spellings (e.g. "C" and " C").
+        first = llm.generate(
+            [prompt + prefill for prompt in problems["prompt"]],
+            SamplingParams(max_tokens=1, temperature=0, logprobs=20), lora_request=lora,
+        )
+        with open(out / "letters.jsonl", "w") as f:
+            for problem, output in zip(problems, first):
+                probs = defaultdict(float)
+                for logprob in output.outputs[0].logprobs[0].values():
+                    if (letter := logprob.decoded_token.strip()) in set("ABCDEF"):
+                        probs[letter] += math.exp(logprob.logprob)
+                question = problem["prompt"].split("User:")[-1]
+                f.write(json.dumps({"question": question, "answer": problem["answer"], "level": problem["level"], "probs": probs}) + "\n")
+                stats = levels[problem["level"]]
+                stats["p_correct"] += probs[problem["answer"]]
+                stats["argmax"] += max("ABCDEF", key=lambda b: probs[b]) == problem["answer"]
+                stats["letter_mass"] += sum(probs.values())
+        for level, s in sorted(levels.items()):
+            print(
+                f"level={level:3d}  P(correct)={s['p_correct'] / s['problems']:.3f}  "
+                f"argmax={s['argmax'] / s['problems']:.3f}  mass on A-F={s['letter_mass'] / s['problems']:.3f}"
+            )
+
+
+if __name__ == "__main__":
+    main()
