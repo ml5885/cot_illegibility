@@ -159,7 +159,7 @@ def localization():
     swapped everywhere) into the base run, and read the box step 4 writes next."""
     after = track(START, SWAPS)
     assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(17.6, 12.5)
+    c = Canvas(17.6, 12.2)
     col, gutter, top = 7.9, 1.2, 0.45
     xs = {"source": 0.3, "base": 0.3 + col + gutter}
 
@@ -197,17 +197,11 @@ def localization():
     for name, letter in (("source", "C"), ("base", "F")):
         r0, r1, ry = readouts[name]
         c.text(r1 + 0.15, ry, f"← predicted next token: {letter}", BODY, ha="left", color=READ)
+    r0, r1, ry = readouts["base"]
+    c.text(r1 + 0.15, ry + 0.45, "← predicted next token after patching: C", BODY, ha="left", color=EDIT)
+    c.text(r1 + 0.15 + c.width("← ", BODY), ry + 0.85, "(if the reasoning is faithful)", BODY, ha="left", color=EDIT)
 
-    # The expected outcome if step 4 relies on what step 3 wrote.
-    y = readouts["base"][2] + 1.0
-    x0 = xs["source"]
-    lead = "If the written reasoning is faithful, patching should change the base run's predicted next token from"
-    c.text(x0, y, lead, BODY)
-    x = x0 + c.width(lead, BODY) + 0.4
-    c.chip(x, y, "F", GREY, width=0.48, height=0.44)
-    c.text(x + 0.42, y, "to", BODY, ha="center")
-    c.chip(x + 0.84, y, "C", EDIT, width=0.48, height=0.44)
-    c.text(x0, y + 0.65, "Highlighted: the letters that differ between the runs.", LABEL + 1, color=GREY)
+    c.text(xs["source"], readouts["base"][2] + 1.45, "Highlighted: the letters that differ between the runs.", LABEL + 1, color=GREY)
     c.save("circuits-localization")
 
 
