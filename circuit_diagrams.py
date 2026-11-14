@@ -92,18 +92,23 @@ class Canvas:
                          arrowprops=dict(arrowstyle="-|>", color=color, lw=lw, shrinkA=0, shrinkB=0,
                                          connectionstyle=f"arc3,rad={rad}", mutation_scale=20), zorder=4)
 
-    def flow(self, x, y, width, parts, size=13, line=0.29) -> tuple[float, dict]:
+    def flow(self, x, y, width, parts, size=13, line=0.29, para=1.3, breaks=None) -> tuple[float, list, set]:
         """Wrap parts (text, or (text, colour) for a highlighted letter, or (text, colour, "box") for a readout) into a column
-        starting at (x, y). "\n" starts a new paragraph. Returns the y of the last line and the centres of highlighted parts."""
-        cx, places = x, {}
+        starting at (x, y). "\n" starts a new paragraph. With breaks (word indices), wrap exactly there instead, so two
+        texts that differ only in single letters wrap alike. Returns the last line's y, each highlighted part's
+        (x0, x1, y) in order, and the word indices that started a wrapped line."""
+        cx, spans, wrapped, n = x, [], set(), 0
         for part in parts:
             text, color, style = (part, None, None) if isinstance(part, str) else (*part, None)[:3]
             for word in re.findall(r"\n|[ ]*\S+|[ ]+", text):
                 if word == "\n":
-                    cx, y = x, y + line * 1.3
+                    cx, y = x, y + line * para
                     continue
-                if cx + self.width(word, size) > x + width and cx > x:
+                n += 1
+                wrap = n in breaks if breaks is not None else cx + self.width(word, size) > x + width and cx > x
+                if wrap:
                     cx, y, word = x, y + line, word.lstrip()
+                    wrapped.add(n)
                 if cx == x:
                     word = word.lstrip()
                 lead = self.width(word[: len(word) - len(word.lstrip())], size) if word.startswith(" ") else 0.0
@@ -113,10 +118,10 @@ class Canvas:
                     pad = 0.035
                     face = "white" if style == "box" else tint(color, 0.35)
                     self.box(x0 - pad, y - 0.14, x0 + w + pad, y + 0.14, face=face, edge=color, lw=1.6, radius=0.04)
-                    places.setdefault(color, []).append((x0 + w / 2, y))
+                    spans.append((x0, x0 + w, y))
                 self.text(x0, y, word.lstrip(), size, ha="left", color=color if style == "box" else "0.1")
                 cx = x0 + w
-        return y, places
+        return y, spans, wrapped
 
     def note(self, x, y, s, color, ha="left"):
         self.text(x, y, s, LABEL, ha=ha, color=color, style="italic", linespacing=1.25)
@@ -133,44 +138,57 @@ def relabel(text: str, a: str, b: str) -> str:
 
 
 def localization():
-    """Patching on the full source and base runs: copy activations at the highlighted tokens from source into base."""
+    """One patch, shown on the full runs: copy the activation at step 3's last statement of the key's box from the source
+    run (F and C swapped everywhere) into the base run, and read out the box in step 4."""
     after = track(START, SWAPS)
     assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(14.6, 9.1)
+    c = Canvas(14.6, 10.15)
     col, gutter, top = 6.4, 1.2, 0.45
-    xs = [0.3, 0.3 + col + gutter]
-    for i, (x, title, sub, swap) in enumerate([(xs[0], "Source run", "F and C swapped everywhere", ("F", "C")),
-                                               (xs[1], "Base run", "the real response", None)]):
-        c.text(x, top, title, HEAD)
-        c.text(x + c.width(title, HEAD) + 0.15, top + 0.02, sub, LABEL, color=GREY, style="italic")
+    xs = {"source": 0.3, "base": 0.3 + col + gutter}
+
+    def parts(swap):
         rel = (lambda t: relabel(t, *swap)) if swap else (lambda t: t)
         q, rest = QUESTION.split("{s3a}")
-        s3a, s3b = ("B", "C") if swap else ("B", "F")
-        loc = "C" if swap else "F"
-        prompt = [rel(q), (s3a, PROMPT), " and ", (s3b, PROMPT), rel(rest.split("{s3b}")[1])]
-        y, _ = c.flow(x, top + 0.6, col, prompt)
-        c.ax.plot([x, x + col], [c.height - (y + 0.28)] * 2, color="0.8", lw=1)
+        prompt = [rel(q), "B", " and ", "C" if swap else "F", rel(rest.split("{s3b}")[1])]
         r = RESPONSE.split("{to}")
-        response = [rel(r[0]), (loc, EDIT), rel(r[1].split("{now}")[0]), (loc, EDIT), rel(r[1].split("{now}")[1]), " ", ("?", READ, "box")]
-        y, places = c.flow(x, y + 0.6, col, response)
-        if i == 1:
-            arrow_y = places[EDIT][0][1]
-    c.arrow((xs[0] + col + 0.15, arrow_y), (xs[1] - 0.15, arrow_y), EDIT)
-    c.note(xs[0] + col + gutter / 2, arrow_y - 0.45, "copy\nactivations", EDIT, ha="center")
+        loc = "C" if swap else "F"
+        response = [rel(r[0]), loc, rel(r[1].split("{now}")[0]), (loc, EDIT), rel(r[1].split("{now}")[1]).replace("\n4.", "\n\n\n4."), " ",
+                    (loc, READ, "box")]
+        return prompt, response
 
-    y += 0.75
-    size = 16
-    outcomes = [(xs[0], "Source", "C", READ, ""), (xs[1], "Base", "F", READ, ""),
-                (xs[1], "Base, orange patched", "C", EDIT, "if it reads its own text"),
-                (xs[1], "Base, blue patched", "C", PROMPT, "if it tracks the prompt")]
-    lead_w = c.width("Base, orange patched", size)
-    for j, (x, lead, letter, color, tail) in enumerate(outcomes):
-        yy = y + 0.6 * max(j - 1, 0)
-        c.text(x, yy, lead, size, ha="left")
-        chip_x = x + (lead_w if x == xs[1] else c.width(lead, size)) + 0.65
-        c.text(chip_x - 0.42, yy, "→", size, ha="center")
-        c.chip(chip_x, yy, letter, color, width=0.5)
-        c.text(chip_x + 0.4, yy, tail, size - 1, ha="left", color=color, style="italic")
+    titles = {"source": ("Source run", "F and C swapped everywhere"), "base": ("Base run", "the real response")}
+    breaks, tokens, readouts = {}, {}, {}
+    for name in ("base", "source"):
+        x = xs[name]
+        c.text(x, top, titles[name][0], HEAD)
+        c.text(x + c.width(titles[name][0], HEAD) + 0.15, top + 0.02, titles[name][1], LABEL, color=GREY, style="italic")
+        prompt, response = parts(("F", "C") if name == "source" else None)
+        y, _, b1 = c.flow(x, top + 0.6, col, prompt, breaks=breaks.get("prompt"))
+        c.ax.plot([x, x + col], [c.height - (y + 0.28)] * 2, color="0.8", lw=1)
+        y, spans, b2 = c.flow(x, y + 0.6, col, response, para=1.4, breaks=breaks.get("response"))
+        breaks.setdefault("prompt", b1)
+        breaks.setdefault("response", b2)
+        tokens[name], readouts[name] = spans[0], spans[1]
+
+    # The arrow runs from the source token down into the gap below step 3, across, and up into the same token in the base run.
+    (s0, s1, sy), (b0, b1, by) = tokens["source"], tokens["base"]
+    sx, bx, gap_y = (s0 + s1) / 2, (b0 + b1) / 2, sy + 0.45
+    c.ax.plot([sx, sx, bx], [c.height - (sy + 0.16), c.height - gap_y, c.height - gap_y], color=EDIT, lw=2.2, solid_joinstyle="round")
+    c.arrow((bx, gap_y), (bx, by + 0.16), EDIT)
+    c.note(sx, gap_y + 0.3, "copy the activation at this token into the base run, one layer at a time", EDIT)
+
+    for name, letter in (("source", "C"), ("base", "F")):
+        r0, r1, ry = readouts[name]
+        c.text(r1 + 0.04, ry + 0.34, f"predicts {letter}", LABEL, ha="right", color=READ)
+
+    y = readouts["base"][2] + 0.95
+    x = xs["base"]
+    c.text(x, y, "Base run with the activation copied in:", LABEL + 1)
+    for j, (letter, color, why) in enumerate([("C", EDIT, "if step 4 reads the box from step 3's text"),
+                                              ("F", GREY, "if it gets the box some other way, e.g. from the prompt")]):
+        yy = y + 0.5 + 0.48 * j
+        c.chip(x + 0.3, yy, letter, color, width=0.45, height=0.42)
+        c.text(x + 0.65, yy, why, LABEL + 1, color=color if color != GREY else "0.3")
     c.save("circuits-localization")
 
 
