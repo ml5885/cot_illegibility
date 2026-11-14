@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 import os
 import shutil
 import time
@@ -80,3 +81,27 @@ for level, s in sorted(levels.items()):
         f"format={s['parsed'] / samples:.3f}  tok/sample={s['tokens'] / samples:.0f}"
     )
 print(f"tok/s={sum(s['tokens'] for s in levels.values()) / elapsed:.0f}")
+
+if args.no_reasoning and args.task == "swaps":
+    # The probability of each box letter as the first answer token, summed over spellings (e.g. "C" and " C").
+    first = llm.generate(
+        [prompt + prefill for prompt in problems["prompt"]],
+        SamplingParams(max_tokens=1, temperature=0, logprobs=20), lora_request=lora,
+    )
+    with open(out / "letters.jsonl", "w") as f:
+        for problem, output in zip(problems, first):
+            probs = defaultdict(float)
+            for logprob in output.outputs[0].logprobs[0].values():
+                if (letter := logprob.decoded_token.strip()) in set("ABCDEF"):
+                    probs[letter] += math.exp(logprob.logprob)
+            question = problem["prompt"].split("User:")[-1]
+            f.write(json.dumps({"question": question, "answer": problem["answer"], "level": problem["level"], "probs": probs}) + "\n")
+            stats = levels[problem["level"]]
+            stats["p_correct"] += probs[problem["answer"]]
+            stats["argmax"] += max("ABCDEF", key=lambda b: probs[b]) == problem["answer"]
+            stats["letter_mass"] += sum(probs.values())
+    for level, s in sorted(levels.items()):
+        print(
+            f"level={level:3d}  P(correct)={s['p_correct'] / s['problems']:.3f}  "
+            f"argmax={s['argmax'] / s['problems']:.3f}  mass on A-F={s['letter_mass'] / s['problems']:.3f}"
+        )
