@@ -33,10 +33,14 @@ def main():
     parser.add_argument("--adapter", help="LoRA checkpoint directory from train.py")
     parser.add_argument("--no-reasoning", action="store_true", help="prefill the prompt so the model must answer at once")
     parser.add_argument("--name", help="run directory under runs/")
+    parser.add_argument("--suffix", help='text appended to the question, e.g. "Think step by step."')
     args = parser.parse_args()
 
     fmt = FORMATS[args.format]
     problems = dataset(args.task, args.split, args.seed, args.problems, args.swaps, fmt)
+    if args.suffix:
+        # The question ends right before the final " Assistant:" of the template.
+        problems = problems.map(lambda r: {"prompt": (i := r["prompt"].rindex(" Assistant:")) and r["prompt"][:i] + " " + args.suffix + r["prompt"][i:]})
     prefill = fmt.skip if args.no_reasoning else ""
     out = Path("runs") / (args.name or f"baseline-{args.task}-{args.format}-{args.model.split('/')[-1]}")
     shutil.rmtree(out, ignore_errors=True)
