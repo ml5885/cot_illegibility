@@ -2,11 +2,14 @@
 
 import argparse
 import json
+import random
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
 
 from transformers import TrainerCallback
+
+from datasets import Dataset
 
 from rollouts import by_level, score_and_save
 from tasks import FORMATS, Format, dataset
@@ -33,6 +36,25 @@ def logged_reward(
         return [row["reward"] for row in rows]
 
     return correct
+
+
+def fixed_mix(data: Dataset, per_step: int, seed: int) -> Dataset:
+    """Orders the puzzles so that every step's prompts hold the same number at each swap count, shuffled within the step.
+    The trainer must then take the dataset in order (shuffle_dataset=False)."""
+    rng = random.Random(seed)
+    by_level = defaultdict(list)
+    for i, level in enumerate(data["level"]):
+        by_level[level].append(i)
+    share, rest = divmod(per_step, len(by_level))
+    assert not rest, "prompts per step must split evenly across swap counts"
+    for indices in by_level.values():
+        rng.shuffle(indices)
+    order = []
+    for step in range(len(data) // per_step):
+        block = [i for indices in by_level.values() for i in indices[step * share : (step + 1) * share]]
+        rng.shuffle(block)
+        order += block
+    return data.select(order)
 
 
 class LimitSchedule(TrainerCallback):
@@ -89,6 +111,7 @@ def grpo_config(args: argparse.Namespace, out: Path):
         num_generations=args.generations,
         num_generations_eval=args.eval_generations,
         max_completion_length=args.max_tokens,
+        shuffle_dataset=args.mix == "random",
         temperature=args.temperature,
         generation_kwargs={"stop": [FORMATS[args.format].stop], "include_stop_str_in_output": True},
         beta=args.beta,
@@ -123,6 +146,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--generations", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=16, help="completions per forward pass")
     parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--mix", choices=["fixed", "random"], default="fixed",
+                        help="fixed: every step has the same number of puzzles at each swap count; random: shuffled")
     parser.add_argument("--min-tokens", type=int, help="lower the limit from --max-tokens toward this (see LimitSchedule)")
     parser.add_argument("--limit-factor", type=float, default=0.9)
     parser.add_argument("--limit-target", type=float, default=0.9, help="training accuracy needed at every swap count")
@@ -154,6 +179,9 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "args.json").write_text(json.dumps(vars(args), indent=2))
 
+    train_data = dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps, fmt)
+    if args.mix == "fixed":
+        train_data = fixed_mix(train_data, args.prompts_per_step, args.seed)
     schedule = None
     trainer = GRPOTrainer(
         model=args.model,
@@ -165,7 +193,7 @@ def main():
             lambda split, step, rows: schedule and schedule.record(split, step, rows),
         ),
         args=grpo_config(args, out),
-        train_dataset=dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps, fmt),
+        train_dataset=train_data,
         eval_dataset=dataset(args.task, "eval", args.seed, args.eval_problems, args.eval_swaps or args.swaps, fmt),
         peft_config=LoraConfig(
             r=args.lora_rank, lora_alpha=2 * args.lora_rank, target_modules="all-linear", task_type="CAUSAL_LM"
