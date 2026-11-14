@@ -198,7 +198,7 @@ def localization():
 
     for name, letter in (("source", "C"), ("base", "F")):
         r0, r1, ry = readouts[name]
-        c.text(r1 + 0.15, ry, f"← predicted next token: {letter}", BODY, ha="left", color=READ)
+        c.text(r1 + 0.15, ry, f"← predicted next token: {letter} (where the key is before swap 4)", BODY, ha="left", color=READ)
 
     # Hypotheses and the next token each predicts for the patched base run.
     y = readouts["base"][2] + 0.95
