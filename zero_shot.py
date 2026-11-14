@@ -57,9 +57,11 @@ def model_results() -> dict[str, dict]:
         for row in letters:
             probs, rule = row["probs"], rules(row["question"])
             stats = per[row["level"]]
+            mass = sum(probs.values())
             stats["P(correct)"].append(probs.get(row["answer"], 0))
+            stats["P(correct), among box letters"].append(probs.get(row["answer"], 0) / mass if mass else 1 / 6)
             stats["Most likely box correct"].append(max("ABCDEF", key=lambda b: probs.get(b, 0)) == row["answer"])
-            stats["P(any box letter)"].append(sum(probs.values()))
+            stats["P(any box letter)"].append(mass)
             stats["P(starting box)"].append(probs.get(START.search(row["question"]).group(1), 0))
             stats["P(a box in the last swap)"].append(sum(probs.get(b, 0) for b in rule["A box in the last swap"]))
         results[run.name.removeprefix("baseline-swaps-noreason-")] = {
@@ -80,14 +82,14 @@ def figure(results: dict[str, dict], baselines: dict[str, dict[int, float]]):
     fig, ax = plt.subplots(figsize=(9, 5.5), layout="constrained")
     for color, (model, by_lvl) in zip(PALETTE, results.items()):
         levels = sorted(by_lvl)
-        ax.plot(levels, [by_lvl[level]["P(correct)"] for level in levels], "o-", color=color, label=model, linewidth=2)
+        ax.plot(levels, [by_lvl[level]["P(correct), among box letters"] for level in levels], "o-", color=color, label=model, linewidth=2)
     best = {level: max(r[level] for r in baselines.values()) for level in LEVELS}
     ax.plot(LEVELS, [best[level] for level in LEVELS], color="0.4", linestyle="--", linewidth=1, label="Best simple rule")
     ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
     ax.set_xscale("log", base=2)
     ax.set_xticks(LEVELS, [str(level) for level in LEVELS])
     ax.set_xlabel("Swaps")
-    ax.set_ylabel("Probability on the correct box")
+    ax.set_ylabel("Probability on the correct box\n(among the six box letters)")
     ax.set_ylim(0, 1)
     ax.yaxis.set_major_formatter("{x:.0%}")
     ax.grid(axis="y", color="0.9", linewidth=0.8)
