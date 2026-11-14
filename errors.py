@@ -17,13 +17,12 @@ import matplotlib.pyplot as plt
 from plots import load, tracking
 from traces import list_steps
 
-CAUSES = ["Cut off", "No answer", "Wrong list", "Tracking error", "Answer differs", "Unclear"]
-CAUSE_COLORS = ["#eda100", "0.65", "#2a78d6", "#eb6834", "#1baf7a", "#e87ba4"]
-KINDS = [("left out only", "Swaps left out only", "#1d4f91"), ("added only", "Steps added only", "#5b93d9"), ("both", "Both", "#b9d3f2")]
+CAUSES = ["Wrong list", "Tracking error", "No answer", "Cut off", "Answer differs", "Unclear"]
+KINDS = [("left out only", "Swaps left out only"), ("added only", "Steps added only"), ("both", "Both")]
 EXTRAS = [
-    ("after the last swap", "After the last swap", "#4f3596"),
-    ("a pair from the problem", "Repeats a pair from the problem", "#9580d6"),
-    ("a pair not in the problem", "A pair not in the problem", "#d6ccf1"),
+    ("after the last swap", "After the last swap"),
+    ("a pair from the problem", "Repeats a pair from the problem"),
+    ("a pair not in the problem", "A pair not in the problem"),
 ]
 PHASES = {
     "swaps-7b-tags-v2": [(0, 49), (50, 99), (100, 199)],
@@ -134,7 +133,7 @@ def tables(groups: list[dict]) -> str:
             )
             ne = sum(e.values())
             if ne:
-                extra_rows.append(f"| {label} | {ne} | " + " | ".join(pct(e[key] / ne) for key, _, _ in EXTRAS) + " |")
+                extra_rows.append(f"| {label} | {ne} | " + " | ".join(pct(e[key] / ne) for key, _ in EXTRAS) + " |")
     out = ["Wrong answers by cause (share of wrong answers), and correct answers reached with a wrong list or a wrong stated location:\n"]
     out.append("| Swaps \\| steps | Responses | Accuracy | Wrong | " + " | ".join(CAUSES) + " | Correct with wrong reasoning |")
     out.append("|---|" + "---|" * (len(CAUSES) + 4))
@@ -146,7 +145,7 @@ def tables(groups: list[dict]) -> str:
         out += list_rows
     if extra_rows:
         out.append("\nExtra steps in those responses:\n")
-        out.append("| Swaps \\| steps | Extra steps | " + " | ".join(label for _, label, _ in EXTRAS) + " |")
+        out.append("| Swaps \\| steps | Extra steps | " + " | ".join(label for _, label in EXTRAS) + " |")
         out.append("|---|---|" + "---|" * len(EXTRAS))
         out += extra_rows
     return "\n".join(out)
@@ -158,66 +157,84 @@ def phase_label(phase: tuple[int, int]) -> str:
 
 
 def figure(run: str, groups: list[dict]):
-    """Stacked bars per swap count and training phase: why wrong answers are wrong, what kind of wrong list, what
-    the extra steps are; and how often long skips land right after a later copy of the last pair written."""
+    """Heatmaps per swap count and training phase (each column sums to 100% within its block): why wrong answers are
+    wrong, what kind of wrong list, what the extra steps are; then how often long skips land right after a later copy
+    of the last pair written, against chance."""
+    from matplotlib.patches import Rectangle
+
     phases = PHASES[run]
     levels = sorted({(g["level"], g["held_out"]) for g in groups})
-    slot = {(g["level"], g["phase"]): li * (len(phases) + 1) + phases.index(g["phase"]) for g in groups for li, lv in enumerate(levels) if lv[0] == g["level"]}
+    spacing = len(phases) + 0.35
+    col = {(g["level"], g["phase"]): li * spacing + phases.index(g["phase"]) for g in groups for li, (level, _) in enumerate(levels) if level == g["level"]}
+    blocks = [
+        ("Wrong answers, by cause", [(c, c) for c in CAUSES], lambda g: g["causes"]),
+        ("Responses with a wrong list of swaps, by kind", KINDS, lambda g: g["kinds"]),
+        ("Extra steps in those responses, by kind", EXTRAS, lambda g: g["extra"]),
+    ]
+    blues = plt.get_cmap("Blues")
+    fig = plt.figure(figsize=(13, 13), layout="constrained")
+    axes = fig.subplots(4, 1, height_ratios=[len(rows) + 0.6 + 1.2 * (i == 0) for i, (_, rows, _) in enumerate(blocks)] + [2.4])
 
-    def stacked(ax, title, parts, counts):
+    for i, (ax, (title, rows, counts)) in enumerate(zip(axes, blocks)):
         for g in groups:
-            c = counts(g)
+            c, x = counts(g), col[g["level"], g["phase"]]
             n = sum(c.values())
-            x, floor = slot[g["level"], g["phase"]], 0.0
-            if n < MIN_BAR:
-                ax.text(x, 0.01, f"{n}", ha="center", va="bottom", fontsize=8, color="0.55")
-                continue
-            for key, _, color in parts:
-                ax.bar(x, c[key] / n, 0.8, bottom=floor, color=color, edgecolor="white", linewidth=1)
-                floor += c[key] / n
-            ax.text(x, 1.01, f"{n:,}", ha="center", va="bottom", fontsize=8, color="0.3")
-        for _, label, color in parts:
-            ax.bar(0, 0, color=color, label=label)
-        ax.set_title(title, pad=16)
-        ax.set_ylim(0, 1)
-        ax.yaxis.set_major_formatter("{x:.0%}")
-        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=3, fontsize=9)
-
-    fig, axes = plt.subplots(2, 2, figsize=(16, 10.5), layout="constrained")
-    stacked(axes[0, 0], "Wrong answers, by cause", [(c, c, color) for c, color in zip(CAUSES, CAUSE_COLORS)], lambda g: g["causes"])
-    stacked(axes[0, 1], "Responses with a wrong list of swaps, by kind", KINDS, lambda g: g["kinds"])
-    stacked(axes[1, 0], "Extra steps in those responses", EXTRAS, lambda g: g["extra"])
-
-    ax = axes[1, 1]
-    for li, (level, held_out) in enumerate(levels):
-        own = [g for g in groups if g["level"] == level]
-        skips = sum(g["skips"] for g in own)
-        if skips < 20:
-            continue
-        x = li * (len(phases) + 1) + (len(phases) - 1) / 2
-        ax.bar(x - 0.45, sum(g["later_copy"] for g in own) / skips, 0.8, color="0.25", label="Observed" if not ax.patches else None)
-        ax.bar(x + 0.45, sum(g["chance"] for g in own) / skips, 0.8, color="0.75", label="If the landing point were random" if len(ax.patches) == 1 else None)
-        ax.text(x, 1.01, f"{skips:.0f} skips", ha="center", va="bottom", fontsize=8, color="0.3")
-    ax.set_title("Skips of 2+ swaps that land right after a later copy\nof the last pair written (all steps)", pad=16)
-    ax.set_ylim(0, 1)
-    ax.yaxis.set_major_formatter("{x:.0%}")
-    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=2, fontsize=9)
-
-    for i, ax in enumerate(axes.flat):
-        ax.grid(axis="y", color="0.9", linewidth=0.8)
-        ax.set_axisbelow(True)
-        if i < 3:
-            ax.set_xticks([slot[g["level"], g["phase"]] for g in groups], [phase_label(g["phase"]) for g in groups], fontsize=8)
+            for y, (key, _) in enumerate(rows):
+                if n < MIN_BAR:
+                    ax.add_patch(Rectangle((x - 0.46, y - 0.44), 0.92, 0.88, facecolor="none", edgecolor="0.85", linewidth=0.8))
+                    ax.text(x, y, "–", ha="center", va="center", fontsize=11, color="0.6")
+                    continue
+                v = c[key] / n
+                ax.add_patch(Rectangle((x - 0.46, y - 0.44), 0.92, 0.88, facecolor=blues(0.05 + 0.9 * v), edgecolor="none"))
+                ax.text(x, y, "<1" if 0 < v < 0.005 else f"{100 * v:.0f}", ha="center", va="center", fontsize=11, color="white" if v > 0.5 else "0.15")
+            ax.text(x, len(rows) - 0.2, f"{n:,}", ha="center", va="center", fontsize=10, color="0.45")
+        ax.set_yticks([*range(len(rows)), len(rows) - 0.2], [label for _, label in rows] + ["Count"])
+        ax.get_yticklabels()[-1].set_color("0.45")
+        ax.set_ylim(len(rows) + 0.1, -0.5)
+        ax.set_xlim(-0.55, max(col.values()) + 0.55)
+        ax.tick_params(length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_title(f"{title} (%)", loc="left", pad=8)
+        if i == 0:
+            ax.xaxis.tick_top()
+            ax.set_xticks(list(col.values()), [phase_label(phase) for _, phase in col], fontsize=10, color="0.35")
+            top = ax.secondary_xaxis("top")
+            top.set_xticks([li * spacing + (len(phases) - 1) / 2 for li in range(len(levels))],
+                           [f"{level} swaps{' (held-out)' if held_out else ''}" for level, held_out in levels], fontsize=13)
+            top.tick_params(length=0, pad=22)
+            top.spines["top"].set_visible(False)
         else:
             ax.set_xticks([])
-        for li, (level, held_out) in enumerate(levels):
-            ax.text(li * (len(phases) + 1) + (len(phases) - 1) / 2, -0.07 if i < 3 else -0.03, f"{level} swaps{' (held-out)' if held_out else ''}",
-                    transform=ax.get_xaxis_transform(), ha="center", va="top")
-        ax.set_xlim(-0.7, len(levels) * (len(phases) + 1) - 1.3)
+
+    ax = axes[3]
+    skips = []
+    for level, held_out in levels:
+        own = [g for g in groups if g["level"] == level]
+        n = sum(g["skips"] for g in own)
+        if n >= 20:
+            skips.append((f"{level} swaps, {n:.0f} skips", sum(g["later_copy"] for g in own) / n, sum(g["chance"] for g in own) / n))
+    for y, (_, observed, chance) in enumerate(skips):
+        ax.plot([chance, observed], [y, y], color="0.8", linewidth=2.5, zorder=1)
+        ax.scatter(chance, y, s=80, facecolor="white", edgecolor="0.4", linewidth=1.5, zorder=2, label="If the landing point were random" if y == 0 else None)
+        ax.scatter(observed, y, s=80, color="#1d4f91", zorder=3, label="Observed" if y == 0 else None)
+        low, high = sorted([(chance, "0.4"), (observed, "#1d4f91")])
+        ax.text(low[0] - 0.012, y, f"{low[0]:.0%}", ha="right", va="center", fontsize=11, color=low[1])
+        ax.text(high[0] + 0.012, y, f"{high[0]:.0%}", ha="left", va="center", fontsize=11, color=high[1])
+    ax.set_yticks(range(len(skips)), [label for label, _, _ in skips])
+    ax.set_ylim(len(skips) - 0.4, -0.6)
+    ax.set_xlim(0, 0.5)
+    ax.xaxis.set_major_formatter("{x:.0%}")
+    ax.grid(axis="x", color="0.9", linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.tick_params(axis="y", length=0)
+    ax.spines["left"].set_visible(False)
+    ax.legend(loc="upper right", fontsize=10)
+    ax.set_title("Skips of 2+ swaps that land right after a later copy of the last pair written (all steps)", loc="left")
 
     args = json.loads(Path("runs", run, "args.json").read_text())
     extra = ", trained on 2 and 4 swaps" if args["swaps"] == [2, 4] else ""
-    fig.suptitle(f"{args['model'].split('/')[-1]}, {args['max_tokens']:,}-token limit{extra}: error statistics by training step")
+    fig.suptitle(f"{args['model'].split('/')[-1]}, {args['max_tokens']:,}-token limit{extra}: errors by training step")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-errors.png", dpi=150)
     plt.close(fig)
