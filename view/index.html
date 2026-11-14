@@ -15,7 +15,9 @@ nav .stats { color: #666; flex-basis: 100%; margin-bottom: 2px; }
 nav .row { flex-basis: 100%; display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }
 nav select, nav input { font: inherit; padding: 3px 6px; border: 1px solid #ccc; background: #fff; }
 #frun { width: 22ch; text-overflow: ellipsis; }
-nav input[type="search"] { width: 200px; }
+nav input[type="search"] { flex: 1; min-width: 200px; }
+nav label.off, nav input[type="search"]:disabled { opacity: 0.35; }
+nav label.off input, nav label.off select { cursor: default; }
 nav label { color: #444; }
 nav button { font: inherit; padding: 3px 10px; cursor: pointer; border: 1px solid #ccc; background: #fff; }
 nav button:disabled { opacity: 0.3; cursor: default; }
@@ -96,6 +98,8 @@ mark.hit { background: #ffe066; color: inherit; }
 .step-bar b { color: #111; margin-right: 8px; }
 .step-bar .step-right { margin-left: auto; display: flex; gap: 14px; align-items: center; }
 .step-bar a { color: #339; cursor: pointer; text-decoration: underline; }
+.step-card.current { border-color: #999; }
+.step-card.dim { opacity: 0.5; }
 .step-card pre { white-space: pre-wrap; word-break: break-word; font: inherit; margin: 0; padding: 12px; background: #fffff0; }
 
 .curves { position: relative; }
@@ -155,13 +159,23 @@ mark.hit { background: #ffe066; color: inherit; }
   </div>
 
   <div class="section">
+    <h3>All samples</h3>
+    <p>Tick "All samples" (or press <b>a</b>) to see every completion sampled for the current prompt in this file, one card each, in group order. The current one is outlined; faded cards are hidden by the filters. "open" shows that completion on its own. It applies when a prompt has more than one sample, as in training files; held-out files have one sample per prompt.</p>
+  </div>
+
+  <div class="section">
+    <h3>Greyed-out controls</h3>
+    <p>Controls that do nothing in the current view are greyed out: the filters, step and display options while Curves is on, "All samples" when the prompt has one sample, "Across steps" when the run has one file. "All samples" and "Across steps" are two different views of one prompt, so ticking one unticks the other.</p>
+  </div>
+
+  <div class="section">
     <h3>Across steps</h3>
     <p>Tick "Across steps" (or press <b>c</b>) to follow one prompt through training: a summary table, then one card per step with the reasoning, the answer given and its length. When a step has several samples for the prompt, the numbered squares on the card switch between them. "open" jumps to that step's file. Only held-out (eval) prompts recur across steps; training prompts are drawn fresh and appear once. So ticking this from a training file jumps to the held-out prompts of the same level.</p>
   </div>
 
   <div class="section">
     <h3>Keys</h3>
-    <p><b>&larr; / &rarr;</b> (and the arrow buttons): previous / next prompt<br><b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group<br><b>p</b>: toggle curves<br><b>c</b>: toggle across steps<br><b>r</b>: toggle raw completion</p>
+    <p><b>&larr; / &rarr;</b> (and the arrow buttons): previous / next prompt<br><b>j / k</b>: previous / next completion<br><b>[ / ]</b>: previous / next file (step)<br><b>g</b>: next completion in the same group<br><b>p</b>: toggle curves<br><b>c</b>: toggle across steps<br><b>a</b>: toggle all samples<br><b>r</b>: toggle raw completion</p>
   </div>
 
   <div class="section">
@@ -197,6 +211,7 @@ mark.hit { background: #ffe066; color: inherit; }
     <label><input type="checkbox" id="fws"> Show whitespace</label>
     <label title="Show the prompt and completion as one unsplit text, exactly as the model saw and wrote it ( r )"><input type="checkbox" id="fraw"> Raw</label>
     <label title="Plot accuracy and reasoning length across steps; click a point to open its completions ( p )"><input type="checkbox" id="fcurves"> Curves</label>
+    <label title="Show every sample in this prompt's group at once ( a )"><input type="checkbox" id="fall"> All samples</label>
     <label title="Show this prompt's completions at every step ( c )"><input type="checkbox" id="facross"> Across steps</label>
     <button id="info">?</button>
     <div class="nav-btns">
@@ -536,9 +551,6 @@ function openFromCurves(file, level) {
 async function loadFile(file, keepIndex = false) {
   setParams({ file });
   $('ffile').value = file;
-  const at = files.indexOf(file);
-  $('prevfile').disabled = at <= 0;
-  $('nextfile').disabled = at >= files.length - 1;
   let text;
   try {
     const r = await fetch(`${RUNS_DIR}${$('frun').value}/rollouts/${file}`);
@@ -626,8 +638,53 @@ function block(kind, title, text) {
     `<div class="msg-body"><pre>${highlight(text)}</pre></div></div>`;
 }
 
+// Grey out the controls that do nothing in the current view.
+function updateControls() {
+  const curvesOn = $('fcurves').checked;
+  const it = filtered[idx];
+  const off = {
+    ffile: curvesOn, foutcome: curvesOn, flevel: curvesOn, fsort: curvesOn, search: curvesOn,
+    fws: curvesOn, fraw: curvesOn,
+    fall: curvesOn || !it || it.group.length < 2,
+    facross: curvesOn || files.length < 2,
+  };
+  for (const [id, disabled] of Object.entries(off)) {
+    $(id).disabled = disabled;
+    const label = $(id).closest('label');
+    if (label) label.classList.toggle('off', disabled);
+  }
+  if (curvesOn) { $('prevfile').disabled = $('nextfile').disabled = $('prev').disabled = $('next').disabled = true; }
+  else {
+    const at = files.indexOf($('ffile').value);
+    $('prevfile').disabled = at <= 0;
+    $('nextfile').disabled = at >= files.length - 1;
+  }
+}
+
+// Every sample in the current prompt's group, one card each.
+function renderGroup(it) {
+  const { split, step } = parseFile($('ffile').value);
+  const names = { correct: 'Correct', wrong: 'Wrong', unparsed: 'No answer' };
+  const cls = r => r.outcome === 'correct' ? 'good' : r.outcome === 'wrong' ? 'bad' : 'warn';
+  const shown = new Set(filtered.map(f => f.n));
+  const solved = it.group.filter(g => g.reward > 0).length;
+  let html = `<div class="meta-panel"><span class="badge tag">${esc(split)}${split === 'baseline' ? '' : ' step ' + step}</span>` +
+    `<span class="badge tag">level ${esc(it.level)}</span><span class="badge tag">expected ${esc(it.answer)}</span>` +
+    `<span class="badge tag">prompt ${it.groupId}, ${solved} of ${it.group.length} correct</span></div>`;
+  html += block('prompt', 'Prompt', it.prompt);
+  it.group.forEach((g, k) => {
+    const [reasoning] = splitCompletion(g.prompt, g.completion);
+    html += `<div class="step-card${g === it ? ' current' : ''}${shown.has(g.n) ? '' : ' dim'}"><div class="step-bar"><b>Sample ${k + 1}</b>` +
+      `<span class="step-right"><span class="${cls(g)}">${names[g.outcome]}${g.parsed === null ? '' : `, answered ${esc(g.parsed)}`}</span>` +
+      `<span>${reasoning.trim().length} chars${g.tokens ? `, ${g.tokens} tokens` : ''}</span><a data-n="${g.n}">open</a></span></div>` +
+      `<pre>${highlight($('fraw').checked ? g.completion : reasoning.trim())}</pre></div>`;
+  });
+  $('content').innerHTML = html;
+}
+
 function render() {
   $('stats').innerHTML = statsHTML();
+  updateControls();
   if ($('fcurves').checked) return renderCurves();
   const shownPrompts = [...new Set(filtered.map(f => f.prompt))];
   const promptAt = filtered.length ? shownPrompts.indexOf(filtered[idx].prompt) : 0;
@@ -642,6 +699,7 @@ function render() {
   setParams({ i: it.n });
   $('pageinfo').textContent = `prompt ${promptAt + 1} of ${shownPrompts.length} · ${idx + 1} of ${filtered.length}`;
   if ($('facross').checked) return renderAcross(it);
+  if ($('fall').checked && !$('fall').disabled) return renderGroup(it);
   const [reasoning, final] = splitCompletion(it.prompt, it.completion);
   const { split, step } = parseFile($('ffile').value);
   const names = { correct: 'Correct', wrong: 'Wrong', unparsed: 'No answer' };
@@ -709,7 +767,14 @@ for (const id of ['foutcome', 'flevel', 'fsort']) $(id).addEventListener('change
 $('fws').addEventListener('change', render);
 $('fraw').addEventListener('change', render);
 $('fcurves').addEventListener('change', () => { setParams({ curves: $('fcurves').checked ? 1 : 0 }); render(); });
-$('facross').addEventListener('change', () => { setParams({ across: $('facross').checked ? 1 : 0 }); render(); });
+$('facross').addEventListener('change', () => {
+  if ($('facross').checked) $('fall').checked = false;
+  setParams({ across: $('facross').checked ? 1 : 0, all: $('fall').checked ? 1 : 0 }); render();
+});
+$('fall').addEventListener('change', () => {
+  if ($('fall').checked) $('facross').checked = false;
+  setParams({ all: $('fall').checked ? 1 : 0, across: $('facross').checked ? 1 : 0 }); render();
+});
 $('search').addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(() => applyFilter(true), 300); });
 $('prev').addEventListener('click', () => goPrompt(-1));
 $('next').addEventListener('click', () => goPrompt(1));
@@ -723,6 +788,8 @@ $('content').addEventListener('click', e => {
   if (header) { collapsed[header.dataset.kind] = !collapsed[header.dataset.kind]; render(); }
   const cell = e.target.closest('td.cell');
   if (cell) return openFromCurves(cell.dataset.file, cell.dataset.level);
+  const one = e.target.closest('a[data-n]');
+  if (one) { $('fall').checked = false; setParams({ all: 0 }); return jumpTo(Number(one.dataset.n)); }
   const link = e.target.closest('a[data-file]');
   if (link) { $('facross').checked = false; loadFile(link.dataset.file, true); }
   const chip = e.target.closest('.chip');
@@ -736,7 +803,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'j') go(-1);
   if (e.key === 'ArrowRight') goPrompt(1);
   if (e.key === 'k') go(1);
-  if (e.key === 'c') $('facross').click();
+  if (e.key === 'c' && !$('facross').disabled) $('facross').click();
+  if (e.key === 'a' && !$('fall').disabled) $('fall').click();
   if (e.key === 'r') $('fraw').click();
   if (e.key === 'p') $('fcurves').click();
   if (e.key === '[') goFile(-1);
@@ -760,6 +828,7 @@ document.addEventListener('keydown', e => {
   fillSelect($('frun'), runs, run);
   $('frun').title = run;
   $('facross').checked = params().get('across') === '1';
+  $('fall').checked = params().get('all') === '1' && !$('facross').checked;
   $('fcurves').checked = params().get('curves') === '1';
   loadRun(run);
 })();
