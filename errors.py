@@ -217,10 +217,7 @@ def figure(run: str, groups: list[dict]):
         ax.get_yticklabels()[-1].set_color("0.45")
         ax.set_ylim(len(rows) + 0.1, -0.5)
         ax.set_xlim(-0.46, max(col.values()) + 0.46)
-        ax.tick_params(length=0)
-        ax.tick_params(axis="y", pad=(label_margin - margin) * 72)
-        for label in ax.get_yticklabels():
-            label.set_horizontalalignment("left")
+        ax.tick_params(length=0, pad=6)
         for spine in ax.spines.values():
             spine.set_visible(False)
         if i == 0:
@@ -248,9 +245,7 @@ def figure(run: str, groups: list[dict]):
     ax.xaxis.set_major_formatter("{x:.0%}")
     ax.grid(axis="x", color="0.9", linewidth=0.8)
     ax.set_axisbelow(True)
-    ax.tick_params(axis="y", length=0, pad=(label_margin - margin) * 72)
-    for label in ax.get_yticklabels():
-        label.set_horizontalalignment("left")
+    ax.tick_params(axis="y", length=0, pad=6)
     ax.spines["left"].set_visible(False)
     ax.legend(loc="upper right", fontsize=10)
 
