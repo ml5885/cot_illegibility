@@ -8,12 +8,20 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from plots import accuracy, load, newline, smoothed, tokens
+from plots import accuracy, load, smoothed, tokens
 
-RUNS = {256: "swaps-7b-tags-256", 512: "swaps-7b-tags-512", 768: "swaps-7b-tags-v2", 1280: "swaps-7b-tags-long"}
+RUNS = {
+    64: "swaps-7b-tags-64", 128: "swaps-7b-tags-128", 256: "swaps-7b-tags-256", 512: "swaps-7b-tags-512", 768: "swaps-7b-tags-v2",
+    1280: "swaps-7b-tags-long",
+}
 LEVELS = [2, 4, 8, 16]
-COLORS = {limit: plt.get_cmap("magma")(x) for limit, x in zip(RUNS, [0.82, 0.62, 0.42, 0.15])}
+COLORS = {limit: plt.get_cmap("magma")(x) for limit, x in zip(RUNS, [0.86, 0.73, 0.6, 0.45, 0.3, 0.12])}
 LATE = range(150, 200)
+
+
+def newline(row: dict) -> float:
+    """A line break in the reasoning; the 64-token run ends its answers with one, after the tags."""
+    return float("\n" in row["completion"].partition("</think>")[0])
 
 
 def cut_off(limit: int):
@@ -26,7 +34,7 @@ def by_level(data, metric_for):
 
 
 def grid(name: str, curves, ylabel: str, percent: bool, limit_lines: bool = False):
-    fig, axes = plt.subplots(2, 2, figsize=(11, 8), sharex=True, layout="constrained")
+    fig, axes = plt.subplots(2, 2, figsize=(12.5, 8), sharex=True, layout="constrained")
     for ax, level in zip(axes.flat, LEVELS):
         for limit in RUNS:
             ax.plot(*curves[limit][level], color=COLORS[limit], linewidth=2, label=f"{limit:,} tokens")
@@ -45,8 +53,9 @@ def grid(name: str, curves, ylabel: str, percent: bool, limit_lines: bool = Fals
         ax.set_ylabel(ylabel)
     for ax in axes[1]:
         ax.set_xlabel("Training step")
-    axes[0, 0].legend(title="Token limit", loc="lower right" if percent else "upper right")
-    fig.suptitle(f"OLMo 3 7B, by token limit: {ylabel.lower()}")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, title="Token limit", loc="outside right center")
+    fig.suptitle(ylabel)
     fig.savefig(f"figures/limits-{name}.png", dpi=150)
     plt.close(fig)
 
@@ -71,30 +80,31 @@ def summary(data, acc):
     ax.set_xlabel("Swaps")
     ax.set_ylabel("Completion tokens, steps 150 to 199")
     ax.set_ylim(0)
-    ax.set_title("Length once the task is learned")
+    ax.set_title("Final length")
     ax.legend(title="Token limit")
     ax = axes[1]
-    width = 0.2
+    width = 0.8 / len(RUNS)
     for i, limit in enumerate(RUNS):
         steps = [first_step(acc[limit][level]) for level in LEVELS]
-        ax.bar([j + (i - 1.5) * width for j in range(len(LEVELS))], [s or 0 for s in steps], width * 0.9, color=COLORS[limit],
-               label=f"{limit:,} tokens")
+        ax.bar([j + (i - (len(RUNS) - 1) / 2) * width for j in range(len(LEVELS))], [s or 0 for s in steps], width * 0.9,
+               color=COLORS[limit], label=f"{limit:,} tokens")
     ax.set_xticks(range(len(LEVELS)), [str(level) for level in LEVELS])
     ax.set_xlabel("Swaps")
     ax.set_ylabel("Training step")
-    ax.set_title("First step with 90% training accuracy")
+    ax.set_title("Steps to 90% accuracy")
     for ax in axes:
         ax.grid(axis="y", color="0.9", linewidth=0.8)
         ax.set_axisbelow(True)
-    fig.suptitle("OLMo 3 7B, by token limit")
+    fig.suptitle("Length and learning speed")
     fig.savefig("figures/limits-summary.png", dpi=150)
     plt.close(fig)
 
 
 def example_lines(data):
-    """A correct 16-swap response near the end of each run, for quoting."""
+    """A 16-swap response near the end of each run, correct if there is one, for quoting."""
     for limit in RUNS:
-        rows = [r for s in (195, 196, 197, 198, 199) for r in data[limit]["train"][16].get(s, []) if r["reward"]]
+        rows = [r for s in (195, 196, 197, 198, 199) for r in data[limit]["train"][16].get(s, [])]
+        rows = sorted(rows, key=lambda r: -r["reward"])
         print(f"\n--- {limit} ({rows[0]['tokens']} tokens)\n{rows[0]['completion'][:900]}")
 
 
