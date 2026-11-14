@@ -116,9 +116,11 @@ class Canvas:
                 x0 = cx + lead
                 if color:
                     pad = 0.035
-                    face = "white" if style == "box" else tint(color, 0.35)
-                    self.box(x0 - pad, y - 0.14, x0 + w + pad, y + 0.14, face=face, edge=color, lw=1.6, radius=0.04)
-                    spans.append((x0, x0 + w, y))
+                    face = "white" if style == "box" else tint(color, 0.5 if style == "mark" else 0.35)
+                    edge = "none" if style == "mark" else color
+                    self.box(x0 - pad, y - 0.14, x0 + w + pad, y + 0.14, face=face, edge=edge, lw=1.6, radius=0.04)
+                    if style != "mark":
+                        spans.append((x0, x0 + w, y))
                 self.text(x0, y, word.lstrip(), size, ha="left", color=color if style == "box" else "0.1")
                 cx = x0 + w
         return y, spans, wrapped
@@ -137,23 +139,33 @@ def relabel(text: str, a: str, b: str) -> str:
     return re.sub(r"\b(box|boxes|and) ([A-F])\b", lambda m: f"{m.group(1)} {({a: b, b: a}).get(m.group(2), m.group(2))}", text)
 
 
+DIFF = "#eda100"
+
+
+def marked(text: str) -> list:
+    """Split text into parts, highlighting the box letters F and C (the letters the source run swaps)."""
+    out, last = [], 0
+    for m in re.finditer(r"\b(?:box|boxes|and) ([FC])\b", text):
+        out += [text[last:m.start(1)], (m.group(1), DIFF, "mark")]
+        last = m.end(1)
+    return out + [text[last:]]
+
+
 def localization():
     """One patch, shown on the full runs: copy the activation at step 3's last statement of the key's box from the source
     run (F and C swapped everywhere) into the base run, and read out the box in step 4."""
     after = track(START, SWAPS)
     assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(14.6, 10.15)
+    c = Canvas(14.6, 9.35)
     col, gutter, top = 6.4, 1.2, 0.45
     xs = {"source": 0.3, "base": 0.3 + col + gutter}
 
-    def parts(swap):
-        rel = (lambda t: relabel(t, *swap)) if swap else (lambda t: t)
-        q, rest = QUESTION.split("{s3a}")
-        prompt = [rel(q), "B", " and ", "C" if swap else "F", rel(rest.split("{s3b}")[1])]
-        r = RESPONSE.split("{to}")
-        loc = "C" if swap else "F"
-        response = [rel(r[0]), loc, rel(r[1].split("{now}")[0]), (loc, EDIT), rel(r[1].split("{now}")[1]).replace("\n4.", "\n\n\n4."), " ",
-                    (loc, READ, "box")]
+    def parts(source: bool):
+        rel = (lambda t: relabel(t, "F", "C")) if source else (lambda t: t)
+        loc = "C" if source else "F"
+        prompt = marked(rel(QUESTION.format(s3a="B", s3b="F")))
+        before, after_now = RESPONSE.split("{now}")
+        response = marked(rel(before.format(to="F"))) + [(loc, EDIT)] + marked(rel(after_now)) + [" ", ("?", READ, "box")]
         return prompt, response
 
     titles = {"source": ("Source run", "F and C swapped everywhere"), "base": ("Base run", "the real response")}
@@ -162,33 +174,35 @@ def localization():
         x = xs[name]
         c.text(x, top, titles[name][0], HEAD)
         c.text(x + c.width(titles[name][0], HEAD) + 0.15, top + 0.02, titles[name][1], LABEL, color=GREY, style="italic")
-        prompt, response = parts(("F", "C") if name == "source" else None)
+        prompt, response = parts(name == "source")
         y, _, b1 = c.flow(x, top + 0.6, col, prompt, breaks=breaks.get("prompt"))
         c.ax.plot([x, x + col], [c.height - (y + 0.28)] * 2, color="0.8", lw=1)
-        y, spans, b2 = c.flow(x, y + 0.6, col, response, para=1.4, breaks=breaks.get("response"))
+        y, spans, b2 = c.flow(x, y + 0.6, col, response, para=1.6, breaks=breaks.get("response"))
         breaks.setdefault("prompt", b1)
         breaks.setdefault("response", b2)
         tokens[name], readouts[name] = spans[0], spans[1]
 
-    # The arrow runs from the source token down into the gap below step 3, across, and up into the same token in the base run.
+    # The arrow runs from the source token through the space below its line and up into the same token in the base run.
     (s0, s1, sy), (b0, b1, by) = tokens["source"], tokens["base"]
-    sx, bx, gap_y = (s0 + s1) / 2, (b0 + b1) / 2, sy + 0.45
-    c.ax.plot([sx, sx, bx], [c.height - (sy + 0.16), c.height - gap_y, c.height - gap_y], color=EDIT, lw=2.2, solid_joinstyle="round")
-    c.arrow((bx, gap_y), (bx, by + 0.16), EDIT)
-    c.note(sx, gap_y + 0.3, "copy the activation at this token into the base run, one layer at a time", EDIT)
+    sx, bx, lane = (s0 + s1) / 2, (b0 + b1) / 2, sy + 0.235
+    c.ax.plot([sx, sx, bx], [c.height - (sy + 0.15), c.height - lane, c.height - lane], color=EDIT, lw=2, solid_joinstyle="round")
+    c.ax.annotate("", xy=(bx, c.height - (by + 0.15)), xytext=(bx, c.height - lane),
+                  arrowprops=dict(arrowstyle="-|>", color=EDIT, lw=2, shrinkA=0, shrinkB=0, mutation_scale=12))
+    c.text(xs["base"] - gutter / 2, sy, "patch", BODY, ha="center", color=EDIT, style="italic")
 
     for name, letter in (("source", "C"), ("base", "F")):
         r0, r1, ry = readouts[name]
-        c.text(r1 + 0.04, ry + 0.34, f"predicts {letter}", LABEL, ha="right", color=READ)
+        c.text(r1 + 0.04, ry + 0.36, f"predicted next token: {letter}", LABEL, ha="right", color=READ)
 
-    y = readouts["base"][2] + 0.95
+    y = readouts["base"][2] + 1.0
     x = xs["base"]
-    c.text(x, y, "Base run with the activation copied in:", LABEL + 1)
+    c.text(x, y, "Base run after the patch, predicted next token:", LABEL + 1)
     for j, (letter, color, why) in enumerate([("C", EDIT, "if step 4 reads the box from step 3's text"),
                                               ("F", GREY, "if it gets the box some other way, e.g. from the prompt")]):
         yy = y + 0.5 + 0.48 * j
         c.chip(x + 0.3, yy, letter, color, width=0.45, height=0.42)
         c.text(x + 0.65, yy, why, LABEL + 1, color=color if color != GREY else "0.3")
+    c.text(xs["source"], y, "Highlighted: the letters that differ between the runs.", LABEL, color=GREY)
     c.save("circuits-localization")
 
 
