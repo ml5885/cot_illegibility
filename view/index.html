@@ -20,6 +20,9 @@ nav select, nav input { font: inherit; padding: 3px 6px; border: 1px solid #ccc;
 #runmenu { position: absolute; top: calc(100% + 4px); left: 0; width: 48ch; max-height: 70vh; overflow-y: auto; background: #fff; border: 1px solid #ccc; box-shadow: 0 6px 20px rgba(0,0,0,0.08); z-index: 20; padding: 6px 0; }
 #runmenu[hidden] { display: none; }
 #runmenu input { width: calc(100% - 16px); margin: 2px 8px 6px; }
+#runtabs { display: flex; gap: 0; margin: 0 8px 6px; border-bottom: 1px solid #ddd; }
+#runtabs button { flex: 1; border: none; border-bottom: 2px solid transparent; background: none; padding: 4px 8px; color: #777; margin-bottom: -1px; }
+#runtabs button.on { color: #111; border-bottom-color: #111; }
 #runmenu h4 { font-size: 11px; color: #888; font-weight: normal; text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 12px 2px; }
 #runmenu a { display: flex; justify-content: space-between; gap: 12px; padding: 2px 12px; color: #111; text-decoration: none; cursor: pointer; }
 #runmenu a:hover, #runmenu a.active { background: #f2f2f2; }
@@ -199,7 +202,7 @@ mark.hit { background: #ffe066; color: inherit; }
     <div class="stats" id="stats"></div>
     <div class="row">
     <label>Run: <span class="picker"><button id="frun" type="button" title="Runs with rollouts: training runs, then single evaluations ( / )"></button>
-      <div id="runmenu" hidden><input type="search" id="runfilter" placeholder="Filter runs..."><div id="runlist"></div></div></span></label>
+      <div id="runmenu" hidden><input type="search" id="runfilter" placeholder="Filter runs..."><div id="runtabs"><button type="button" data-tab="train"></button><button type="button" data-tab="eval"></button></div><div id="runlist"></div></div></span></label>
     <label>Step: <select id="ffile"></select></label>
     <button id="prevfile" title="Previous file ( [ )">[</button>
     <button id="nextfile" title="Next file ( ] )">]</button>
@@ -774,6 +777,7 @@ function toggleSidebar() {
 
 // Runs that have rollout files: training runs (train or eval files at steps) and single evaluations (one baseline file).
 let runGroups = { train: [], eval: [] };
+let runTab = 'train';
 
 async function findRuns(names) {
   const found = await Promise.all(names.map(async run => {
@@ -790,19 +794,24 @@ async function findRuns(names) {
 
 function renderRunMenu() {
   const q = $('runfilter').value.toLowerCase();
-  const section = (title, runs) => {
-    const shown = runs.filter(r => r.run.toLowerCase().includes(q));
-    if (!shown.length) return '';
-    return `<h4>${title} (${shown.length})</h4>` + shown.map(r =>
-      `<a data-run="${esc(r.run)}" class="${r.run === $('frun').value ? 'current' : ''}">${esc(r.run)}<span>${r.steps ? `${r.steps} steps` : ''}</span></a>`).join('');
-  };
-  $('runlist').innerHTML = section('Training runs', runGroups.train) + section('Evaluations', runGroups.eval) ||
-    '<h4>No matching runs</h4>';
+  const shown = Object.fromEntries(Object.entries(runGroups).map(([kind, runs]) => [kind, runs.filter(r => r.run.toLowerCase().includes(q))]));
+  const other = runTab === 'train' ? 'eval' : 'train';
+  if (!shown[runTab].length && shown[other].length) runTab = other;
+  for (const tab of $('runtabs').children) {
+    tab.textContent = `${tab.dataset.tab === 'train' ? 'Training runs' : 'Evaluations'} (${shown[tab.dataset.tab].length})`;
+    tab.classList.toggle('on', tab.dataset.tab === runTab);
+  }
+  $('runlist').innerHTML = shown[runTab].map(r =>
+    `<a data-run="${esc(r.run)}" class="${r.run === $('frun').value ? 'current' : ''}">${esc(r.run)}<span>${r.steps ? `${r.steps} steps` : ''}</span></a>`
+  ).join('') || '<h4>No matching runs</h4>';
 }
 
 function toggleRunMenu(open = $('runmenu').hidden) {
   $('runmenu').hidden = !open;
-  if (open) { $('runfilter').value = ''; renderRunMenu(); $('runfilter').focus(); $('runlist').querySelector('a.current')?.scrollIntoView({ block: 'nearest' }); }
+  if (open) {
+    $('runfilter').value = '';
+    runTab = runGroups.eval.some(r => r.run === $('frun').value) ? 'eval' : 'train';
+    renderRunMenu(); $('runfilter').focus(); $('runlist').querySelector('a.current')?.scrollIntoView({ block: 'nearest' }); }
 }
 
 function selectRun(run) {
@@ -814,6 +823,7 @@ function selectRun(run) {
 
 $('frun').addEventListener('click', () => toggleRunMenu());
 $('runfilter').addEventListener('input', renderRunMenu);
+$('runtabs').addEventListener('click', e => { const tab = e.target.closest('button'); if (tab) { runTab = tab.dataset.tab; renderRunMenu(); $('runfilter').focus(); } });
 $('runfilter').addEventListener('keydown', e => {
   if (e.key === 'Escape') toggleRunMenu(false);
   if (e.key === 'Enter') { const first = $('runlist').querySelector('a'); if (first) selectRun(first.dataset.run); }
