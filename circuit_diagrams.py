@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib import patheffects
 from matplotlib.colors import to_rgb
 from matplotlib.patches import FancyBboxPatch
 
@@ -92,7 +93,7 @@ class Canvas:
                          arrowprops=dict(arrowstyle="-|>", color=color, lw=lw, shrinkA=0, shrinkB=0,
                                          connectionstyle=f"arc3,rad={rad}", mutation_scale=20), zorder=4)
 
-    def flow(self, x, y, width, parts, size=13, line=0.29, para=1.3, breaks=None) -> tuple[float, list, set]:
+    def flow(self, x, y, width, parts, size=13, line=0.29, para=1.3, breaks=None, force=()) -> tuple[float, list, set]:
         """Wrap parts (text, or (text, colour) for a highlighted letter, or (text, colour, "box") for a readout) into a column
         starting at (x, y). "\n" starts a new paragraph. With breaks (word indices), wrap exactly there instead, so two
         texts that differ only in single letters wrap alike. Returns the last line's y, each highlighted part's
@@ -105,7 +106,7 @@ class Canvas:
                     cx, y = x, y + line * para
                     continue
                 n += 1
-                wrap = n in breaks if breaks is not None else cx + self.width(word, size) > x + width and cx > x
+                wrap = n in breaks if breaks is not None else (n in force or cx + self.width(word, size) > x + width) and cx > x
                 if wrap:
                     cx, y, word = x, y + line, word.lstrip()
                     wrapped.add(n)
@@ -118,10 +119,12 @@ class Canvas:
                     pad = 0.035
                     face = "white" if style == "box" else tint(color, 0.5 if style == "mark" else 0.35)
                     edge = "none" if style == "mark" else color
-                    self.box(x0 - pad, y - 0.14, x0 + w + pad, y + 0.14, face=face, edge=edge, lw=1.6, radius=0.04)
+                    half = 0.0108 * size
+                    self.box(x0 - pad, y - half, x0 + w + pad, y + half, face=face, edge=edge, lw=1.6, radius=0.04)
                     if style != "mark":
                         spans.append((x0, x0 + w, y))
-                self.text(x0, y, word.lstrip(), size, ha="left", color=color if style == "box" else "0.1")
+                self.text(x0, y, word.lstrip(), size, ha="left", color=color if style == "box" else "0.1", zorder=5,
+                          path_effects=[patheffects.withStroke(linewidth=3, foreground="white")] if not color else None)
                 cx = x0 + w
         return y, spans, wrapped
 
@@ -156,8 +159,8 @@ def localization():
     run (F and C swapped everywhere) into the base run, and read out the box in step 4."""
     after = track(START, SWAPS)
     assert after[3] == "F" and after[-1] == "A"
-    c = Canvas(14.6, 9.85)
-    col, gutter, top = 6.4, 1.2, 0.45
+    c = Canvas(17.6, 13.6)
+    col, gutter, top = 7.9, 1.2, 0.45
     xs = {"source": 0.3, "base": 0.3 + col + gutter}
 
     def parts(source: bool):
@@ -175,35 +178,35 @@ def localization():
         c.text(x, top, titles[name][0], HEAD)
         c.text(x + c.width(titles[name][0], HEAD) + 0.15, top + 0.02, titles[name][1], LABEL, color=GREY, style="italic")
         prompt, response = parts(name == "source")
-        y, _, b1 = c.flow(x, top + 0.6, col, prompt, breaks=breaks.get("prompt"))
-        c.ax.plot([x, x + col], [c.height - (y + 0.28)] * 2, color="0.8", lw=1)
-        y, spans, b2 = c.flow(x, y + 0.6, col, response, para=1.6, breaks=breaks.get("response"))
+        loc = "C" if name == "source" else "F"
+        y, _, b1 = c.flow(x, top + 0.7, col, prompt, size=17, line=0.4, breaks=breaks.get("prompt"))
+        c.ax.plot([x, x + col], [c.height - (y + 0.32)] * 2, color="0.8", lw=1)
+        token = 1 + sum(len(re.findall(r"[ ]*\S+|[ ]+", t if isinstance(t, str) else t[0])) for t in response[:response.index((loc, EDIT))])
+        y, spans, b2 = c.flow(x, y + 0.68, col, response, size=17, line=0.4, para=1.45, breaks=breaks.get("response"), force={token})
         breaks.setdefault("prompt", b1)
         breaks.setdefault("response", b2)
         tokens[name], readouts[name] = spans[0], spans[1]
 
-    # The arrow runs from the source token through the space below its line and up into the same token in the base run.
+    # A straight arrow from the source token to the same token in the base run, drawn under the text.
     (s0, s1, sy), (b0, b1, by) = tokens["source"], tokens["base"]
-    sx, bx, lane = (s0 + s1) / 2, (b0 + b1) / 2, sy + 0.235
-    c.ax.plot([sx, sx, bx], [c.height - (sy + 0.15), c.height - lane, c.height - lane], color=EDIT, lw=2, solid_joinstyle="round")
-    c.ax.annotate("", xy=(bx, c.height - (by + 0.15)), xytext=(bx, c.height - lane),
-                  arrowprops=dict(arrowstyle="-|>", color=EDIT, lw=2, shrinkA=0, shrinkB=0, mutation_scale=12))
-    c.text(xs["base"] - gutter / 2, sy, "patch", BODY, ha="center", color=EDIT, style="italic")
+    c.ax.annotate("", xy=(b0 - 0.06, c.height - by), xytext=(s1 + 0.12, c.height - sy),
+                  arrowprops=dict(arrowstyle="-|>", color=EDIT, lw=2.4, shrinkA=0, shrinkB=0, mutation_scale=20), zorder=4)
+    c.text(xs["base"] - gutter / 2, sy - 0.3, "patch", HEAD, ha="center", color=EDIT, style="italic")
 
     for name, letter in (("source", "C"), ("base", "F")):
         r0, r1, ry = readouts[name]
-        c.text(r1 + 0.04, ry + 0.36, f"predicted next token: {letter}", LABEL, ha="right", color=READ)
+        c.text(r1 + 0.15, ry, f"← predicted next token: {letter}", BODY, ha="left", color=READ)
 
-    y = readouts["base"][2] + 1.0
+    y = readouts["base"][2] + 0.85
     x = xs["base"]
-    c.text(x, y, "Base run after the patch, predicted next token:", LABEL + 1)
+    c.text(x, y, "Base run after the patch, predicted next token:", BODY)
     for j, (letter, color, why) in enumerate([("C", EDIT, "if step 4 reads the box only from step 3's text"),
                                               ("C/F", READ, "in between if it uses the text and other routes"),
                                               ("F", GREY, "if it gets the box another way, e.g. from the prompt")]):
-        yy = y + 0.5 + 0.48 * j
+        yy = y + 0.55 + 0.52 * j
         c.chip(x + 0.33, yy, letter, color, width=0.6 if len(letter) > 1 else 0.45, height=0.42)
-        c.text(x + 0.72, yy, why, LABEL + 1, color=color if color != GREY else "0.3")
-    c.text(xs["source"], y, "Highlighted: the letters that differ between the runs.", LABEL, color=GREY)
+        c.text(x + 0.72, yy, why, BODY, color=color if color != GREY else "0.3")
+    c.text(xs["source"], y, "Highlighted: the letters that differ between the runs.", BODY, color=GREY)
     c.save("circuits-localization")
 
 
