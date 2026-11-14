@@ -89,7 +89,8 @@ def table(rows: dict[str, dict[int, float]], title: str) -> str:
 
 
 def figure(panels: dict[str, dict[str, dict]], baselines: dict[str, dict[int, float]]):
-    fig, axes = plt.subplots(1, len(panels), figsize=(7.5 * len(panels), 5.5), layout="constrained", sharey=True)
+    fig, axes = plt.subplots(1, len(panels), figsize=(7.5 * len(panels) + 1.5, 5.5), layout="constrained", sharey=True, squeeze=False)
+    axes = axes[0]
     best = {level: max(r[level] for r in baselines.values()) for level in LEVELS}
     for ax, (title, results) in zip(axes, panels.items()):
         for model, by_lvl in results.items():
@@ -144,7 +145,8 @@ if __name__ == "__main__":
     random.seed(0)
     baselines = rule_accuracy()
     print("Simple rules (accuracy):\n\n" + table(baselines, "Rule \\| swaps"))
-    panels = {"Chat template": model_results("baseline-swaps-noreason-"), "Bare prompt": model_results("bare-noreason-")}
+    # The chat-template runs (baseline-swaps-noreason-*) are kept but not plotted: the conversation framing is contrived for base models.
+    panels = {"": model_results("bare-noreason-")}
     for title, results in panels.items():
         for model, by_lvl in results.items():
             measures = {m: {level: by_lvl[level][m] for level in by_lvl} for m in next(iter(by_lvl.values()))}
