@@ -127,7 +127,7 @@ def entity_figure():
             swaps = sorted(s for o, s in per if o == objects)
             ax.plot(swaps, [sum(per[objects, s]) / len(per[objects, s]) for s in swaps], "o-", color=COLORS[model], label=model,
                     linewidth=2)
-    for ax, title in zip(axes, ("One object (a key)", "Six objects, one per box")):
+    for ax, title in zip(axes, ("One object", "Six objects")):
         ax.axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
         ax.set_xticks([0, 1, 2])
         ax.set_xlabel("Swaps")

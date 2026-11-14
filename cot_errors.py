@@ -99,8 +99,8 @@ if __name__ == "__main__":
               + f"\n{'':16s} wrong answers naming the starting box: "
               + f"{sum(BOX.findall(ANSWER.findall(r['completion'])[-1])[0] == START.search(r['prompt']).group(1) for r in start) / len(start):.2f}")
     fig, axes = plt.subplots(1, 2, figsize=(15, 5.8), layout="constrained", sharey=True)
-    shares(axes[0], causes, CAUSES, "Why wrong answers are wrong (2 to 16 swaps)")
-    shares(axes[1], steps, STEPS, "Tracking errors: what the first wrong step does")
+    shares(axes[0], causes, CAUSES, "Common errors")
+    shares(axes[1], steps, STEPS, "Common first error")
     axes[0].invert_yaxis()  # shared with the right panel
-    fig.suptitle("Base models with reasoning: errors")
+    fig.suptitle("Base models with reasoning")
     fig.savefig("figures/cot-errors.png", dpi=150)

@@ -53,7 +53,7 @@ if __name__ == "__main__":
         ax.set_ylabel("Probability on the correct box\n(among the six box letters)")
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="outside right center")
-    fig.suptitle("OLMo 3 7B checkpoints answering without reasoning")
+    fig.suptitle("No-reasoning performance during training")
     fig.savefig("figures/noreason-checkpoints.png", dpi=150)
     for run in RUNS:
         final = max(int(d.name.rsplit("-", 1)[1]) for d in Path("runs").glob(f"noreason-{run}-*"))

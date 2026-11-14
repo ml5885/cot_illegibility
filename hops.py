@@ -57,7 +57,7 @@ if __name__ == "__main__":
         axes[1].plot(levels, [stats[l][f"agree {k}"] / stats[l]["n"] for l in levels], "o-", color=COLORS[k], linewidth=2, label=label)
     axes[0].axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
     axes[0].set_title("Accuracy")
-    axes[1].set_title("Model's answer is the rule's answer")
+    axes[1].set_title("Agreement with rule")
     for ax in axes:
         ax.set_xscale("log", base=2)
         ax.set_xticks(levels, [str(l) for l in levels])
@@ -66,7 +66,7 @@ if __name__ == "__main__":
         ax.yaxis.set_major_formatter("{x:.0%}")
         ax.grid(axis="y", color="0.9", linewidth=0.8)
     axes[0].legend(loc="lower left", fontsize=10)
-    fig.suptitle(f"OLMo 3 7B, 64-token limit: answers against rules (training steps {first} to 199)")
+    fig.suptitle("OLMo 3 7B, 64-token limit")
     fig.savefig(f"figures/{run}-hops.png", dpi=150)
     for l in levels:
         print(l, {k: round(v / stats[l]["n"], 2) for k, v in stats[l].items() if k != "n"})

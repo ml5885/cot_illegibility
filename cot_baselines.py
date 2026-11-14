@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from generalization import puzzle_se
 from zero_shot import COLORS
 
-PANELS = {"baseline-swaps-cot-": "Question as is", "baseline-swaps-cotstep-": 'With "Think step by step."'}
+PANELS = {"baseline-swaps-cot-": "Plain prompt", "baseline-swaps-cotstep-": '"Think step by step"'}
 ANSWER = re.compile(r"<answer>(.*?)</answer>", re.DOTALL)
 BOX = re.compile(r"\b([A-F])\b")
 
@@ -56,5 +56,5 @@ if __name__ == "__main__":
     axes[0].set_ylabel("Accuracy")
     handles, labels = axes[-1].get_legend_handles_labels()
     fig.legend(handles[1:] + handles[:1], labels[1:] + labels[:1], loc="outside right center", fontsize=10)
-    fig.suptitle("Performance with reasoning (bars: one standard error over puzzles)")
+    fig.suptitle("Performance with reasoning")
     fig.savefig("figures/cot-baselines.png", dpi=150)
