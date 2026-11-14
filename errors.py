@@ -156,6 +156,12 @@ def phase_label(phase: tuple[int, int]) -> str:
     return f"{lo}+" if hi >= 100 and lo >= 100 else f"{lo}–{hi}"
 
 
+def model_label(run: str) -> str:
+    args = json.loads(Path("runs", run, "args.json").read_text())
+    extra = ", trained on 2 and 4 swaps" if args["swaps"] == [2, 4] else ""
+    return f"{args['model'].split('/')[-1]}, {args['max_tokens']:,}-token limit{extra}"
+
+
 def figure(run: str, groups: list[dict]):
     """Heatmaps per swap count and training phase (each column sums to 100% within its block): why wrong answers are
     wrong, what kind of wrong list, what the extra steps are; then how often long skips land right after a later copy
@@ -171,11 +177,30 @@ def figure(run: str, groups: list[dict]):
         ("Responses with a wrong list of swaps, by kind", KINDS, lambda g: g["kinds"]),
         ("Extra steps in those responses, by kind", EXTRAS, lambda g: g["extra"]),
     ]
-    blues = plt.get_cmap("Blues")
-    fig = plt.figure(figsize=(13, 13), layout="constrained")
-    axes = fig.subplots(4, 1, height_ratios=[len(rows) + 0.6 + 1.2 * (i == 0) for i, (_, rows, _) in enumerate(blocks)] + [2.4])
+    skips = []
+    for level, held_out in levels:
+        own = [g for g in groups if g["level"] == level]
+        n = sum(g["skips"] for g in own)
+        if n >= 20:
+            skips.append((f"{level} swaps, {n:.0f} skips", sum(g["later_copy"] for g in own) / n, sum(g["chance"] for g in own) / n))
 
-    for i, (ax, (title, rows, counts)) in enumerate(zip(axes, blocks)):
+    # Fixed layout in inches, so every title starts at the same left margin above the row labels.
+    width, label_margin, margin, row = 13, 3.3, 0.25, 0.42
+    header, title_gap, block_gap = 0.45, 0.4, 0.3
+    heights = [(len(rows) + 0.6) * row for _, rows, _ in blocks] + [0.55 * (len(skips) + 0.2)]
+    total = 0.7 + header + sum(heights) + len(heights) * (title_gap + block_gap) + 0.3
+    fig = plt.figure(figsize=(width, total))
+    fig.text(margin / width, 1 - 0.25 / total, f"{model_label(run)}: errors by training step", fontsize=16, va="top")
+    titles = [f"{title} (%)" for title, _, _ in blocks] + ["Skips of 2+ swaps that land right after a later copy of the last pair written (all steps)"]
+    axes, top = [], 0.7
+    for i, (title, height) in enumerate(zip(titles, heights)):
+        fig.text(margin / width, 1 - top / total, title, fontsize=14, va="top")
+        top += title_gap + header * (i == 0)
+        axes.append(fig.add_axes([label_margin / width, 1 - (top + height) / total, (width - label_margin - margin) / width, height / total]))
+        top += height + block_gap
+
+    blues = plt.get_cmap("Blues")
+    for i, (ax, (_, rows, counts)) in enumerate(zip(axes, blocks)):
         for g in groups:
             c, x = counts(g), col[g["level"], g["phase"]]
             n = sum(c.values())
@@ -186,7 +211,7 @@ def figure(run: str, groups: list[dict]):
                     continue
                 v = c[key] / n
                 ax.add_patch(Rectangle((x - 0.46, y - 0.44), 0.92, 0.88, facecolor=blues(0.05 + 0.9 * v), edgecolor="none"))
-                ax.text(x, y, "<1" if 0 < v < 0.005 else f"{100 * v:.0f}", ha="center", va="center", fontsize=11, color="white" if v > 0.5 else "0.15")
+                ax.text(x, y, f"{100 * v:.0f}", ha="center", va="center", fontsize=11, color="white" if v > 0.5 else "0.15")
             ax.text(x, len(rows) - 0.2, f"{n:,}", ha="center", va="center", fontsize=10, color="0.45")
         ax.set_yticks([*range(len(rows)), len(rows) - 0.2], [label for _, label in rows] + ["Count"])
         ax.get_yticklabels()[-1].set_color("0.45")
@@ -195,25 +220,18 @@ def figure(run: str, groups: list[dict]):
         ax.tick_params(length=0)
         for spine in ax.spines.values():
             spine.set_visible(False)
-        ax.set_title(f"{title} (%)", loc="left", pad=8)
         if i == 0:
             ax.xaxis.tick_top()
             ax.set_xticks(list(col.values()), [phase_label(phase) for _, phase in col], fontsize=10, color="0.35")
-            top = ax.secondary_xaxis("top")
-            top.set_xticks([li * spacing + (len(phases) - 1) / 2 for li in range(len(levels))],
-                           [f"{level} swaps{' (held-out)' if held_out else ''}" for level, held_out in levels], fontsize=13)
-            top.tick_params(length=0, pad=22)
-            top.spines["top"].set_visible(False)
+            swaps = ax.secondary_xaxis("top")
+            swaps.set_xticks([li * spacing + (len(phases) - 1) / 2 for li in range(len(levels))],
+                             [f"{level} swaps{' (held-out)' if held_out else ''}" for level, held_out in levels], fontsize=13)
+            swaps.tick_params(length=0, pad=22)
+            swaps.spines["top"].set_visible(False)
         else:
             ax.set_xticks([])
 
-    ax = axes[3]
-    skips = []
-    for level, held_out in levels:
-        own = [g for g in groups if g["level"] == level]
-        n = sum(g["skips"] for g in own)
-        if n >= 20:
-            skips.append((f"{level} swaps, {n:.0f} skips", sum(g["later_copy"] for g in own) / n, sum(g["chance"] for g in own) / n))
+    ax = axes[-1]
     for y, (_, observed, chance) in enumerate(skips):
         ax.plot([chance, observed], [y, y], color="0.8", linewidth=2.5, zorder=1)
         ax.scatter(chance, y, s=80, facecolor="white", edgecolor="0.4", linewidth=1.5, zorder=2, label="If the landing point were random" if y == 0 else None)
@@ -230,11 +248,7 @@ def figure(run: str, groups: list[dict]):
     ax.tick_params(axis="y", length=0)
     ax.spines["left"].set_visible(False)
     ax.legend(loc="upper right", fontsize=10)
-    ax.set_title("Skips of 2+ swaps that land right after a later copy of the last pair written (all steps)", loc="left")
 
-    args = json.loads(Path("runs", run, "args.json").read_text())
-    extra = ", trained on 2 and 4 swaps" if args["swaps"] == [2, 4] else ""
-    fig.suptitle(f"{args['model'].split('/')[-1]}, {args['max_tokens']:,}-token limit{extra}: errors by training step")
     Path("figures").mkdir(exist_ok=True)
     fig.savefig(f"figures/{run}-errors.png", dpi=150)
     plt.close(fig)
