@@ -130,10 +130,10 @@ def newline_after_swaps(row: dict) -> list[bool]:
     return ["\n" in text for text in texts if text is not None]
 
 
-def step_counts(row: dict) -> tuple[int, int]:
-    """How many of the puzzle's swaps the reasoning leaves out, and how many steps it writes that match no swap
-    of the puzzle at that point (a swap repeated, invented or miscopied). Only numbered or "boxes X and Y" steps
-    are counted as extra, from the first matched step on, so a pair repeated inside a step is not one."""
+def list_steps(row: dict) -> tuple[list[tuple[str, str]], list[re.Match | None], list[re.Match]]:
+    """The puzzle's swaps, where the reasoning takes up each one (None if left out), and the steps it writes that
+    match no swap of the puzzle at that point (a swap repeated, invented or miscopied). Only numbered or "boxes X
+    and Y" steps count as extra, from the first matched step on, so a pair repeated inside a step is not one."""
     swaps = puzzle(row)[0]
     reasoning = " ".join(row["completion"].partition("</think>")[0].split())
     pool, mentions = parse_steps(reasoning, swaps)
@@ -143,11 +143,17 @@ def step_counts(row: dict) -> tuple[int, int]:
     end = mentions[last].end() + len(step_texts(reasoning, mentions)[last]) if last is not None else len(reasoning)
     pool = [m for m in pool if m.start() < end]
     if not matched or len(pool) == len(PAIR.findall(reasoning)) and len(pool) > 2 * len(swaps):
-        return len(swaps) - len(matched), 0
+        return swaps, mentions, []
     spans = {m.span() for m in matched}
     numbered = all(HEADER.search(reasoning[max(0, m.start() - 80) : m.start()]) for m in pool)
     extra = [
         m for before, m in zip(pool, pool[1:])
         if m.start() > matched[0].start() and m.span() not in spans and (numbered or set(m.groups()) != set(before.groups()))
     ]
-    return len(swaps) - len(matched), len(extra)
+    return swaps, mentions, extra
+
+
+def step_counts(row: dict) -> tuple[int, int]:
+    """How many of the puzzle's swaps the reasoning leaves out, and how many extra steps it writes."""
+    swaps, mentions, extra = list_steps(row)
+    return sum(m is None for m in mentions), len(extra)
