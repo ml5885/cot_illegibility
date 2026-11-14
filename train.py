@@ -2,15 +2,22 @@
 
 import argparse
 import json
+from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
+
+from transformers import TrainerCallback
 
 from rollouts import by_level, score_and_save
 from tasks import FORMATS, Format, dataset
 
 
-def logged_reward(directory: Path, fmt: Format, state: Callable[[], tuple[int, str]], log: Callable[[dict], None]):
-    """Reward on the final answer only. `state` returns the current (step, split); `log` gets per-level stats."""
+def logged_reward(
+    directory: Path, fmt: Format, state: Callable[[], tuple[int, str]], log: Callable[[dict], None],
+    record: Callable[[str, int, list[dict]], None],
+):
+    """Reward on the final answer only. `state` returns the current (step, split); `log` gets per-level stats;
+    `record` gets the scored rows."""
 
     seen = {"key": None, "rows": []}
 
@@ -20,11 +27,47 @@ def logged_reward(directory: Path, fmt: Format, state: Callable[[], tuple[int, s
             seen.update(key=(step, split), rows=[])
         tokens = [len(ids) for ids in completion_ids]
         rows = score_and_save(directory, fmt, split, step, prompts, completions, answer, level, tokens)
+        record(split, step, rows)
         seen["rows"] += rows  # eval arrives in several batches; log the running mean over the whole step
         log({f"{split}_levels/{name}": value for name, value in by_level(seen["rows"]).items()})
         return [row["reward"] for row in rows]
 
     return correct
+
+
+class LimitSchedule(TrainerCallback):
+    """Lowers the token limit by `factor`, down to `floor`, whenever training accuracy at every swap count has been at
+    least `target` over the last `patience` steps at the current limit. Changes are appended to `path` as JSON lines."""
+
+    def __init__(self, trainer, floor: int, factor: float, target: float, patience: int, path: Path):
+        self.trainer, self.floor, self.factor, self.target, self.patience, self.path = trainer, floor, factor, target, patience, path
+        self.rewards = defaultdict(lambda: defaultdict(list))  # step -> level -> rewards
+        self.since = 0  # first step generated at the current limit
+        self.write(0, trainer.max_completion_length)
+
+    def record(self, split: str, step: int, rows: list[dict]):
+        if split == "train":
+            for row in rows:
+                self.rewards[step][row["level"]].append(row["reward"])
+
+    def write(self, step: int, limit: int):
+        with self.path.open("a") as f:
+            f.write(json.dumps({"step": step, "limit": limit}) + "\n")
+
+    def on_step_end(self, args, state, control, **kwargs):
+        step, limit = state.global_step, self.trainer.max_completion_length
+        window = range(step - self.patience, step)
+        if limit <= self.floor or window.start < self.since:
+            return
+        pooled = defaultdict(list)
+        for s in window:
+            for level, rewards in self.rewards[s].items():
+                pooled[level] += rewards
+        if all(sum(r) / len(r) >= self.target for r in pooled.values()):
+            limit = max(self.floor, round(limit * self.factor))
+            self.trainer.max_completion_length = self.trainer.vllm_generation.max_completion_length = limit
+            self.since = step
+            self.write(step, limit)
 
 
 def grpo_config(args: argparse.Namespace, out: Path):
@@ -80,6 +123,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--generations", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=16, help="completions per forward pass")
     parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--min-tokens", type=int, help="lower the limit from --max-tokens toward this (see LimitSchedule)")
+    parser.add_argument("--limit-factor", type=float, default=0.9)
+    parser.add_argument("--limit-target", type=float, default=0.9, help="training accuracy needed at every swap count")
+    parser.add_argument("--limit-patience", type=int, default=10, help="steps at that accuracy before each cut")
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--beta", type=float, default=0.0, help="KL coefficient")
     parser.add_argument("--lr", type=float, default=5e-5)
@@ -107,6 +154,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "args.json").write_text(json.dumps(vars(args), indent=2))
 
+    schedule = None
     trainer = GRPOTrainer(
         model=args.model,
         reward_funcs=logged_reward(
@@ -114,6 +162,7 @@ def main():
             fmt,
             lambda: (trainer.state.global_step, "train" if trainer.model.training else "eval"),
             lambda stats: wandb.log(stats, commit=False),
+            lambda split, step, rows: schedule and schedule.record(split, step, rows),
         ),
         args=grpo_config(args, out),
         train_dataset=dataset(args.task, "train", args.seed, args.max_steps * args.prompts_per_step, args.swaps, fmt),
@@ -125,6 +174,11 @@ def main():
     # vLLM's transformers backend patches the backbone class's __call__ in place to consult this
     # flag, which only its own instances set; the trainer's copy must take the plain forward.
     type(trainer.model.get_base_model().base_model).do_not_compile = True
+    if args.min_tokens:
+        assert not args.resume, "the schedule's state is not saved in checkpoints"
+        (out / "limits.jsonl").unlink(missing_ok=True)
+        schedule = LimitSchedule(trainer, args.min_tokens, args.limit_factor, args.limit_target, args.limit_patience, out / "limits.jsonl")
+        trainer.add_callback(schedule)
     trainer.train(resume_from_checkpoint=args.resume)
     trainer.save_model(str(out / "final"))
 
