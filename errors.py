@@ -191,7 +191,7 @@ def figure(run: str, groups: list[dict]):
     total = 0.7 + header + sum(heights) + len(heights) * (title_gap + block_gap) + 0.3
     fig = plt.figure(figsize=(width, total))
     fig.text(margin / width, 1 - 0.25 / total, f"{model_label(run)}: errors by training step", fontsize=16, va="top")
-    titles = [f"{title} (%)" for title, _, _ in blocks] + ["Skips of 2+ swaps that land right after a later copy of the last pair written (all steps)"]
+    titles = [f"{title} (%)" for title, _, _ in blocks] + ["Skips that jump to a repeated pair"]
     axes, top = [], 0.7
     for i, (title, height) in enumerate(zip(titles, heights)):
         fig.text(margin / width, 1 - top / total, title, fontsize=14, va="top")
