@@ -12,13 +12,20 @@ import matplotlib.pyplot as plt
 from errors import cause
 
 RUNS = {
+    "swaps-7b-tags-64": "64-token limit",
+    "swaps-7b-tags-128": "128-token limit",
+    "swaps-7b-tags-sched128": "128-token limit, lowered gradually",
     "swaps-7b-tags-256": "256-token limit",
     "swaps-7b-tags-512": "512-token limit",
     "swaps-7b-tags-v2": "768-token limit",
     "swaps-7b-tags-long": "1,280-token limit",
     "swaps-7b-tags-2and4": "Trained on 2 and 4 swaps",
 }
-COLORS = dict(zip(RUNS, [plt.get_cmap("magma")(x) for x in (0.82, 0.62, 0.42, 0.15)] + ["#2a78d6"]))
+# The token-limit colours of token_limits.md; the gradual 128 run shares the 128 colour, dashed.
+COLORS = dict(zip(RUNS, [plt.get_cmap("magma")(x) for x in (0.86, 0.73, 0.73, 0.6, 0.45, 0.3, 0.12)] + ["#2a78d6"]))
+DASHED = {"swaps-7b-tags-sched128"}
+# The 64-token model writes no reasoning, so its wrong answers have no reasoning to classify.
+NO_REASONING = {"swaps-7b-tags-64"}
 LIMIT = 3072
 
 
@@ -41,7 +48,7 @@ def puzzle_se(rs: list[dict]) -> float:
 
 
 if __name__ == "__main__":
-    data = {run: rows(run) for run in RUNS if Path("runs", f"gen-{run}").exists()}
+    data = {run: rows(run) for run in RUNS if Path("runs", f"gen-{run}", "rollouts", "baseline_00000.jsonl").exists()}
     # Two subfigures so each legend sits under the panels it belongs to.
     fig = plt.figure(figsize=(19, 6.2), layout="constrained")
     runs_fig, errors_fig = fig.subfigures(1, 2, width_ratios=[2, 0.85])
@@ -50,8 +57,9 @@ if __name__ == "__main__":
         levels = list(by)
         acc = [sum(r["reward"] for r in by[l]) / len(by[l]) for l in levels]
         se = [puzzle_se(by[l]) for l in levels]
-        axes[0].errorbar(levels, acc, yerr=se, fmt="o-", color=COLORS[run], linewidth=2, markersize=5, capsize=2, label=RUNS[run])
-        axes[1].plot(levels, [sum(r["tokens"] for r in by[l]) / len(by[l]) for l in levels], "o-", color=COLORS[run], linewidth=2,
+        style = "o--" if run in DASHED else "o-"
+        axes[0].errorbar(levels, acc, yerr=se, fmt=style, color=COLORS[run], linewidth=2, markersize=5, capsize=2, label=RUNS[run])
+        axes[1].plot(levels, [sum(r["tokens"] for r in by[l]) / len(by[l]) for l in levels], style, color=COLORS[run], linewidth=2,
                      markersize=5, label=RUNS[run])
     axes[0].axhline(1 / 6, color="gray", linestyle=":", linewidth=1, label="Chance (1/6)")
     axes[0].set_ylim(0, 1.02)
@@ -71,7 +79,8 @@ if __name__ == "__main__":
     # Greens and greys, so no colour here is also a run's colour in the other panels.
     parts = [("Wrong list", "Wrong list of swaps", "#2f8f6b"), ("Tracking error", "Tracking error", "#9bc53d"),
              ("Answer differs", "Answer differs from last stated box", "#4d4d4d"), ("Cut off", "Cut off", "#999999")]
-    for i, (run, by) in enumerate(data.items()):
+    reasoning = {run: by for run, by in data.items() if run not in NO_REASONING}
+    for i, (run, by) in enumerate(reasoning.items()):
         wrong = [r for level, rs in by.items() if level > 16 for r in rs if not r["reward"]]
         counts = defaultdict(int)
         for r in wrong:
@@ -81,7 +90,7 @@ if __name__ == "__main__":
             n = counts[key] if key != "other" else len(wrong) - sum(counts[k] for k, _, _ in parts)
             ax.barh(i, n / len(wrong), left=floor, color=color, edgecolor="white", label=label if i == 0 else None)
             floor += n / len(wrong)
-    ax.set_yticks(range(len(data)), [RUNS[run] for run in data])
+    ax.set_yticks(range(len(reasoning)), [RUNS[run] for run in reasoning])
     ax.invert_yaxis()
     ax.set_xlim(0, 1)
     ax.xaxis.set_major_formatter("{x:.0%}")
