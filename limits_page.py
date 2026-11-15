@@ -122,8 +122,8 @@ def examples() -> str:
 
 if __name__ == "__main__":
     text = Path("token_limits.md").read_text()
-    before, _, rest = text.partition("## Over training")
-    caveats = rest[rest.index("## Caveats"):]
+    # The examples go just before the caveats.
+    before, caveats = text[: text.index("## Caveats")], text[text.index("## Caveats") :]
     render = lambda md: markdown.markdown(md, extensions=["tables"])
     body = render(before) + examples() + render(caveats)
     Path("token_limits.html").write_text(
