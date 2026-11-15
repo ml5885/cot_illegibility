@@ -4,7 +4,8 @@ import re
 
 START = re.compile(r"A key is in box (\w)\.")
 SWAP = re.compile(r"Swap the contents of boxes (\w) and (\w)\.")
-PAIR = re.compile(r"\b([A-F])\s*(?:and|with|&)\s*(?:box\s+)?([A-F])\b")
+# "C and F", "C with box F", or "C,F" (the terse style of the gradual 128-token run).
+PAIR = re.compile(r"\b([A-F])(?:\s*(?:and|with|&)\s*(?:box\s+)?|,)([A-F])\b")
 # A list marker ("3.", "Step 3:") with no sentence break between it and the pair: the pair heads a step.
 HEADER = re.compile(r"\d+\s*[.:)]\s*[^.:\n]*$")
 # Boxes named only to say the key is not there, or as a group, are not statements of where the key is.

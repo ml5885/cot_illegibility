@@ -85,7 +85,7 @@ def shares(fig, rows: dict[str, list[str]], parts: list[tuple[str, str, str]], t
     ax.set_xlim(0, 1)
     ax.xaxis.set_major_formatter("{x:.0%}")
     ax.set_title(title)
-    fig.legend(loc="outside lower center", ncol=ncol, fontsize=13)
+    ax.legend(loc="upper left", bbox_to_anchor=(0, -0.08), ncol=ncol, fontsize=13, borderaxespad=0)
 
 
 if __name__ == "__main__":

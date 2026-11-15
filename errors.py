@@ -30,6 +30,7 @@ PHASES = {
     "swaps-7b-tags-512": [(0, 49), (50, 99), (100, 199)],
     "swaps-7b-tags-256": [(0, 49), (50, 99), (100, 199)],
     "swaps-7b-tags-2and4": [(0, 39), (40, 100)],
+    "swaps-7b-tags-sched128": [(0, 59), (60, 150), (151, 299)],
 }
 MIN_BAR = 10
 
@@ -69,9 +70,13 @@ def list_detail(rows: list[dict]) -> dict:
         written = [i for i, m in enumerate(mentions) if m is not None]
         for a, b in zip(written, written[1:]):
             if b > a + 2:
+                # A jump of two or more swaps that resumes with the pair that follows a later copy of the pair just
+                # written. Judged by content, since the in-order alignment may pin the landing to an earlier copy of
+                # the same pair; chance is the share of possible landing points that would match.
+                after_copies = {frozenset(swaps[j + 1]) for j in range(a + 1, len(swaps) - 1) if set(swaps[j]) == set(swaps[a])}
                 skips += 1
-                later_copy += set(swaps[b - 1]) == set(swaps[a])
-                chance += sum(set(swaps[k]) == set(swaps[a]) for k in range(a + 1, len(swaps))) / (len(swaps) - a - 1)
+                later_copy += frozenset(swaps[b]) in after_copies
+                chance += sum(frozenset(swaps[k]) in after_copies for k in range(a + 3, len(swaps))) / (len(swaps) - a - 3)
         last = max((m.start() for m in mentions if m), default=0)
         pairs = {frozenset(s) for s in swaps}
         for m in extra:
@@ -82,10 +87,20 @@ def list_detail(rows: list[dict]) -> dict:
     }
 
 
+def limit_at(run: str):
+    """The token limit at each step: fixed, or from limits.jsonl for runs that lower it on a schedule."""
+    path = Path("runs", run, "limits.jsonl")
+    if not path.exists():
+        limit = json.loads(Path("runs", run, "args.json").read_text())["max_tokens"]
+        return lambda step: limit
+    changes = [json.loads(line) for line in path.open()]
+    return lambda step: [c["limit"] for c in changes if c["step"] <= step][-1]
+
+
 def stats(run: str) -> list[dict]:
     """One entry per swap count and training phase."""
     data = load(run)
-    limit = json.loads(Path("runs", run, "args.json").read_text())["max_tokens"]
+    limits = limit_at(run)
     held_out = {level for level in data["eval"] if level not in data["train"]}
     out = []
     for level in sorted(set(data["train"]) | held_out):
@@ -98,8 +113,9 @@ def stats(run: str) -> list[dict]:
             right = [r for r in rows if r["reward"]]
             out.append({
                 "level": level, "held_out": split == "eval", "phase": (lo, hi), "responses": len(rows), "right": len(right),
-                "causes": Counter(cause(r, limit) for r in wrong),
-                "lucky": sum(cause(r | {"reward": 0}, limit) not in ("Answer differs", "Unclear") for r in right),
+                "causes": Counter(cause(r, limits(s)) for s, rs in data[split][level].items() if lo <= s <= hi for r in rs if not r["reward"]),
+                "lucky": sum(cause(r | {"reward": 0}, limits(s)) not in ("Answer differs", "Unclear")
+                             for s, rs in data[split][level].items() if lo <= s <= hi for r in rs if r["reward"]),
                 **list_detail(rows),
             })
     return out
@@ -159,6 +175,8 @@ def phase_label(phase: tuple[int, int]) -> str:
 def model_label(run: str) -> str:
     args = json.loads(Path("runs", run, "args.json").read_text())
     extra = ", trained on 2 and 4 swaps" if args["swaps"] == [2, 4] else ""
+    if args.get("min_tokens"):
+        return f"{args['model'].split('/')[-1]}, limit lowered from {args['max_tokens']} to {args['min_tokens']} tokens"
     return f"{args['model'].split('/')[-1]}, {args['max_tokens']:,}-token limit{extra}"
 
 
