@@ -62,9 +62,16 @@ PLAIN = Format(
     "\nAnswer:",
     split_plain,
 )
+# Only the output format, stated once before the question, with nothing about what goes inside the tags.
+SHORT = Format(
+    "Respond in the format <think> ... </think> <answer> ... </answer>.\n\n{}\n<think>",
+    "</answer>",
+    " </think> <answer>",
+    split_tags,
+)
 # The question and "Answer:", with no chat framing or tags; for answering with no reasoning only.
 BARE = Format("{}\nAnswer:", "\n", "", lambda completion: ("", completion.split("\n")[0]))
-FORMATS = {"tags": TAGS, "plain": PLAIN, "bare": BARE}
+FORMATS = {"tags": TAGS, "short": SHORT, "plain": PLAIN, "bare": BARE}
 
 
 @dataclass
